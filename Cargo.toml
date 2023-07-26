@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 strum = {  version = "0.25.0", features = ["derive"] }
 xrpl-rust = { version = "0.2.0" }
+ecdsa = { version = "0.16.7" }
+k256 = { version = "0.13.1" }

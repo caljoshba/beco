@@ -3,9 +3,9 @@ use xrpl::{core::keypairs::{generate_seed, derive_keypair, derive_classic_addres
 
 #[derive(Debug, Clone)]
 pub struct XRPLKeyValues {
-    public_key: String,
-    classic_address: String,
-    alias: Option<String>,
+    pub public_key: String,
+    pub classic_address: String,
+    pub alias: Option<String>,
 }
 
 #[derive(Debug, Clone)]
