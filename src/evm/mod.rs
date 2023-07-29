@@ -1,17 +1,17 @@
-use crate::{traits::{value::Values, key::Key}, keys::ChainCustody, enums::cypto_algortihms::EVMAlgortithm, errors::key::CreateKeyError};
+use crate::{traits::{value::Values, key::Key}, keys::ChainCustody, enums::cypto_algortihms::EVMAlgortithm, errors::key::CreateKeyError, response::WalletResponse};
 
 
 #[derive(Debug, Clone)]
 pub struct EVMKeyValues {
     pub public_key: String,
-    pub alias: Option<String>,
+    pub alias: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct EVMKey {
     public_key: String,
     private_key: String,
-    alias: Option<String>,
+    alias: String,
 }
 
 impl Values<EVMKeyValues> for EVMKey {
@@ -20,8 +20,12 @@ impl Values<EVMKeyValues> for EVMKey {
     }
 }
 
-impl Key<EVMAlgortithm, EVMKey> for ChainCustody<EVMKey, EVMKeyValues> {
-    fn create(&mut self, algorithm: Option<EVMAlgortithm>, alias: Option<String>) -> Result<EVMKey, CreateKeyError> {
+impl Key<EVMAlgortithm> for ChainCustody<EVMKey, EVMKeyValues> {
+    fn create(&mut self, algorithm: Option<EVMAlgortithm>, alias: String) -> Result<WalletResponse, CreateKeyError> {
+        unimplemented!()
+    }
+
+    fn display(&self) -> Vec<WalletResponse> {
         unimplemented!()
     }
 }

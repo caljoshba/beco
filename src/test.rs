@@ -13,6 +13,6 @@ fn create_new_keys() {
 #[test]
 fn create_new_key() {
     let mut chain_custody: ChainCustody<XRPLKey, XRPLKeyValues> = ChainCustody::new(Blockchain::XRPL);
-    let _ = chain_custody.create(Some(CryptoAlgorithm::ED25519), Some("test".into()));
+    let _ = chain_custody.create(Some(CryptoAlgorithm::ED25519), "test".into());
     assert_eq!(chain_custody.keys.len(), 1);
 }

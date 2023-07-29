@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{enums::blockchain::Blockchain, traits::value::Values};
-
+#[derive(Debug, Clone)]
 pub struct ChainCustody<T, A> where T: Values<A> {
     pub chain: Blockchain,
     pub keys: Vec<T>,
