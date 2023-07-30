@@ -2,16 +2,17 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-   let proto_file = "./proto/wallet.proto";
+   let proto_file = "./proto/main.proto";
+   let local_out_dir: &str = "./src/proto";
    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
    tonic_build::configure()
            .protoc_arg("--experimental_allow_proto3_optional") // for older systems
            .build_client(true)
            .build_server(true)
-           .file_descriptor_set_path(out_dir.join("wallet_descriptor.bin"))
-           .out_dir("./src")
-           .compile(&[proto_file], &["proto"])?;
+           .file_descriptor_set_path(out_dir.join("beco_descriptor.bin"))
+           .out_dir(local_out_dir)
+           .compile(&[proto_file], &["./proto"])?;
 
    Ok(())
 }

@@ -2,7 +2,13 @@ use std::collections::HashMap;
 
 use uuid::{Uuid};
 
-use crate::{enums::blockchain::{Blockchain, BlockchainCustody}, keys::ChainCustody, traits::key::Key, response::WalletResponse, errors::key::CreateKeyError};
+use crate::{
+    enums::blockchain::{Blockchain, BlockchainCustody},
+    chain::chain_custody::ChainCustody,
+    response::WalletResponse,
+    errors::key::CreateKeyError,
+    traits::key::Key
+};
 
 #[derive(Debug)]
 pub struct User {

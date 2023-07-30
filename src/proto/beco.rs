@@ -1,6 +1,6 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AccountType {
+pub struct ListAccountRequest {
     #[prost(enumeration = "Blockchain", tag = "1")]
     pub blockchain: i32,
     #[prost(string, tag = "2")]
@@ -8,7 +8,7 @@ pub struct AccountType {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AddAccount {
+pub struct AddAccountRequest {
     #[prost(enumeration = "Blockchain", tag = "1")]
     pub blockchain: i32,
     #[prost(string, tag = "2")]
@@ -18,7 +18,7 @@ pub struct AddAccount {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AccountListResponse {
+pub struct ListAccountResponse {
     #[prost(message, repeated, tag = "1")]
     pub wallets: ::prost::alloc::vec::Vec<WalletResponse>,
     #[prost(enumeration = "Blockchain", tag = "2")]
@@ -33,6 +33,27 @@ pub struct WalletResponse {
     pub public_key: ::prost::alloc::string::String,
     #[prost(string, optional, tag = "3")]
     pub classic_address: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AddUserRequest {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetUserResponse {
+    #[prost(string, tag = "1")]
+    pub user_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListUserRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListUserResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub users: ::prost::alloc::vec::Vec<GetUserResponse>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -64,15 +85,15 @@ impl Blockchain {
     }
 }
 /// Generated client implementations.
-pub mod keys_client {
+pub mod beco_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
-    pub struct KeysClient<T> {
+    pub struct BecoClient<T> {
         inner: tonic::client::Grpc<T>,
     }
-    impl KeysClient<tonic::transport::Channel> {
+    impl BecoClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
@@ -83,7 +104,7 @@ pub mod keys_client {
             Ok(Self::new(conn))
         }
     }
-    impl<T> KeysClient<T>
+    impl<T> BecoClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
@@ -101,7 +122,7 @@ pub mod keys_client {
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
-        ) -> KeysClient<InterceptedService<T, F>>
+        ) -> BecoClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
@@ -115,7 +136,7 @@ pub mod keys_client {
                 http::Request<tonic::body::BoxBody>,
             >>::Error: Into<StdError> + Send + Sync,
         {
-            KeysClient::new(InterceptedService::new(inner, interceptor))
+            BecoClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
@@ -148,11 +169,11 @@ pub mod keys_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        pub async fn list(
+        pub async fn list_user(
             &mut self,
-            request: impl tonic::IntoRequest<super::AccountType>,
+            request: impl tonic::IntoRequest<super::ListUserRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::AccountListResponse>,
+            tonic::Response<super::ListUserResponse>,
             tonic::Status,
         > {
             self.inner
@@ -165,14 +186,58 @@ pub mod keys_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet.Keys/List");
+            let path = http::uri::PathAndQuery::from_static("/beco.Beco/ListUser");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("wallet.Keys", "List"));
+            req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "ListUser"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn add(
+        pub async fn add_user(
             &mut self,
-            request: impl tonic::IntoRequest<super::AddAccount>,
+            request: impl tonic::IntoRequest<super::AddUserRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetUserResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/beco.Beco/AddUser");
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "AddUser"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn list_account(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ListAccountRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListAccountResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/beco.Beco/ListAccount");
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "ListAccount"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn add_account(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AddAccountRequest>,
         ) -> std::result::Result<tonic::Response<super::WalletResponse>, tonic::Status> {
             self.inner
                 .ready()
@@ -184,34 +249,45 @@ pub mod keys_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet.Keys/Add");
+            let path = http::uri::PathAndQuery::from_static("/beco.Beco/AddAccount");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("wallet.Keys", "Add"));
+            req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "AddAccount"));
             self.inner.unary(req, path, codec).await
         }
     }
 }
 /// Generated server implementations.
-pub mod keys_server {
+pub mod beco_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with KeysServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with BecoServer.
     #[async_trait]
-    pub trait Keys: Send + Sync + 'static {
-        async fn list(
+    pub trait Beco: Send + Sync + 'static {
+        async fn list_user(
             &self,
-            request: tonic::Request<super::AccountType>,
+            request: tonic::Request<super::ListUserRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::AccountListResponse>,
+            tonic::Response<super::ListUserResponse>,
             tonic::Status,
         >;
-        async fn add(
+        async fn add_user(
             &self,
-            request: tonic::Request<super::AddAccount>,
+            request: tonic::Request<super::AddUserRequest>,
+        ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
+        async fn list_account(
+            &self,
+            request: tonic::Request<super::ListAccountRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListAccountResponse>,
+            tonic::Status,
+        >;
+        async fn add_account(
+            &self,
+            request: tonic::Request<super::AddAccountRequest>,
         ) -> std::result::Result<tonic::Response<super::WalletResponse>, tonic::Status>;
     }
     #[derive(Debug)]
-    pub struct KeysServer<T: Keys> {
+    pub struct BecoServer<T: Beco> {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
@@ -219,7 +295,7 @@ pub mod keys_server {
         max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
-    impl<T: Keys> KeysServer<T> {
+    impl<T: Beco> BecoServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -271,9 +347,9 @@ pub mod keys_server {
             self
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for KeysServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for BecoServer<T>
     where
-        T: Keys,
+        T: Beco,
         B: Body + Send + 'static,
         B::Error: Into<StdError> + Send + 'static,
     {
@@ -289,22 +365,22 @@ pub mod keys_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/wallet.Keys/List" => {
+                "/beco.Beco/ListUser" => {
                     #[allow(non_camel_case_types)]
-                    struct ListSvc<T: Keys>(pub Arc<T>);
-                    impl<T: Keys> tonic::server::UnaryService<super::AccountType>
-                    for ListSvc<T> {
-                        type Response = super::AccountListResponse;
+                    struct ListUserSvc<T: Beco>(pub Arc<T>);
+                    impl<T: Beco> tonic::server::UnaryService<super::ListUserRequest>
+                    for ListUserSvc<T> {
+                        type Response = super::ListUserResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::AccountType>,
+                            request: tonic::Request<super::ListUserRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).list(request).await };
+                            let fut = async move { (*inner).list_user(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -315,7 +391,7 @@ pub mod keys_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = ListSvc(inner);
+                        let method = ListUserSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -331,22 +407,22 @@ pub mod keys_server {
                     };
                     Box::pin(fut)
                 }
-                "/wallet.Keys/Add" => {
+                "/beco.Beco/AddUser" => {
                     #[allow(non_camel_case_types)]
-                    struct AddSvc<T: Keys>(pub Arc<T>);
-                    impl<T: Keys> tonic::server::UnaryService<super::AddAccount>
-                    for AddSvc<T> {
-                        type Response = super::WalletResponse;
+                    struct AddUserSvc<T: Beco>(pub Arc<T>);
+                    impl<T: Beco> tonic::server::UnaryService<super::AddUserRequest>
+                    for AddUserSvc<T> {
+                        type Response = super::GetUserResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::AddAccount>,
+                            request: tonic::Request<super::AddUserRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).add(request).await };
+                            let fut = async move { (*inner).add_user(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -357,7 +433,93 @@ pub mod keys_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = AddSvc(inner);
+                        let method = AddUserSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/beco.Beco/ListAccount" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListAccountSvc<T: Beco>(pub Arc<T>);
+                    impl<T: Beco> tonic::server::UnaryService<super::ListAccountRequest>
+                    for ListAccountSvc<T> {
+                        type Response = super::ListAccountResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListAccountRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).list_account(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ListAccountSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/beco.Beco/AddAccount" => {
+                    #[allow(non_camel_case_types)]
+                    struct AddAccountSvc<T: Beco>(pub Arc<T>);
+                    impl<T: Beco> tonic::server::UnaryService<super::AddAccountRequest>
+                    for AddAccountSvc<T> {
+                        type Response = super::WalletResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AddAccountRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move { (*inner).add_account(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = AddAccountSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -388,7 +550,7 @@ pub mod keys_server {
             }
         }
     }
-    impl<T: Keys> Clone for KeysServer<T> {
+    impl<T: Beco> Clone for BecoServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -400,7 +562,7 @@ pub mod keys_server {
             }
         }
     }
-    impl<T: Keys> Clone for _Inner<T> {
+    impl<T: Beco> Clone for _Inner<T> {
         fn clone(&self) -> Self {
             Self(Arc::clone(&self.0))
         }
@@ -410,7 +572,7 @@ pub mod keys_server {
             write!(f, "{:?}", self.0)
         }
     }
-    impl<T: Keys> tonic::server::NamedService for KeysServer<T> {
-        const NAME: &'static str = "wallet.Keys";
+    impl<T: Beco> tonic::server::NamedService for BecoServer<T> {
+        const NAME: &'static str = "beco.Beco";
     }
 }

@@ -16,4 +16,8 @@ impl<T, A> ChainCustody<T, A> where T: Values<A> {
             phantom_type: PhantomData
         }
     }
+
+    pub fn does_alias_exist(&self, alias: String) -> bool {
+        self.keys.iter().find(|&key| key.alias() == alias).is_some()
+    }
 }

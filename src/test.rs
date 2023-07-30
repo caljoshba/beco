@@ -2,7 +2,7 @@
 
 use xrpl::constants::CryptoAlgorithm;
 
-use crate::{enums::blockchain::Blockchain, keys::ChainCustody, xrpl::{XRPLKey, XRPLKeyValues}, traits::key::Key};
+use crate::{enums::blockchain::Blockchain, chain::chain_custody::ChainCustody, xrpl::{XRPLKey, XRPLKeyValues}, traits::key::Key};
 
 #[test]
 fn create_new_keys() {

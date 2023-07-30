@@ -1,6 +1,6 @@
 use strum::{ Display, EnumString };
 
-use crate::{keys::ChainCustody, xrpl::{XRPLKey, XRPLKeyValues}, evm::{EVMKey, EVMKeyValues}, wallet::Blockchain as ProtoBlockchain};
+use crate::{chain::chain_custody::ChainCustody, xrpl::{XRPLKey, XRPLKeyValues}, evm::{EVMKey, EVMKeyValues}, proto::beco::Blockchain as ProtoBlockchain};
 
 #[derive(Debug, Clone, Display, EnumString, Eq, PartialEq, Hash)]
 pub enum Blockchain {

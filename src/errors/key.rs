@@ -10,6 +10,6 @@ pub struct CreateKeyError<'a> {
 
 impl<'a> fmt::Display for CreateKeyError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Error creating key on {}", self.chain)
+        write!(f, "Error creating key on {}: {}", self.chain, self.message)
     }
 }

@@ -1,4 +1,4 @@
-use crate::{traits::{value::Values, key::Key}, keys::ChainCustody, enums::cypto_algortihms::EVMAlgortithm, errors::key::CreateKeyError, response::WalletResponse};
+use crate::{traits::{value::Values, key::Key}, chain::chain_custody::ChainCustody, enums::cypto_algortihms::EVMAlgortithm, errors::key::CreateKeyError, response::WalletResponse};
 
 
 #[derive(Debug, Clone)]
@@ -17,6 +17,18 @@ pub struct EVMKey {
 impl Values<EVMKeyValues> for EVMKey {
     fn values(&self) -> EVMKeyValues {
         EVMKeyValues { public_key: self.public_key.clone(), alias: self.alias.clone() }
+    }
+
+    fn alias(&self) -> String {
+        self.alias.clone()
+    }
+
+    fn public_key(&self) -> String {
+        self.public_key.clone()
+    }
+
+    fn classic_address(&self) -> Option<String> {
+        None
     }
 }
 

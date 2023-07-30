@@ -1,4 +1,4 @@
-use crate::wallet::WalletResponse as ProtoWalletResponse;
+use crate::proto::beco::WalletResponse as ProtoWalletResponse;
 
 #[derive(Debug)]
 pub struct WalletResponse {
@@ -26,23 +26,3 @@ impl From<WalletResponse> for ProtoWalletResponse {
         }
     }
 }
-
-// impl Into<ProtoWalletResponse> for &WalletResponse {
-//     fn into(&self) -> Self {
-//         Self {
-//             alias: value.alias,
-//             public_key: value.public_key,
-//             classic_address: value.classic_address,
-//         }
-//     }
-// }
-
-// impl From<&WalletResponse> for ProtoWalletResponse {
-//     fn from(value: &WalletResponse) -> Self {
-//         Self {
-//             alias: value.alias,
-//             public_key: value.public_key,
-//             classic_address: value.classic_address,
-//         }
-//     }
-// }
