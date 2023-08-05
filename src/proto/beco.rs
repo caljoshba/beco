@@ -5,6 +5,8 @@ pub struct ListAccountRequest {
     pub blockchain: i32,
     #[prost(string, tag = "2")]
     pub user_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub calling_user: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -15,6 +17,8 @@ pub struct AddAccountRequest {
     pub alias: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub user_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub calling_user: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -44,7 +48,7 @@ pub struct AddUserRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetUserResponse {
     #[prost(string, tag = "1")]
-    pub user_id: ::prost::alloc::string::String,
+    pub id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

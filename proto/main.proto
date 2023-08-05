@@ -27,12 +27,14 @@ enum Blockchain {
 message ListAccountRequest {
     Blockchain blockchain = 1;
     string user_id = 2;
+    string calling_user = 3;
 }
 
 message AddAccountRequest {
     Blockchain blockchain = 1;
     string alias = 2;
     string user_id = 3;
+    string calling_user = 4;
 }
 
 message ListAccountResponse {
@@ -51,7 +53,7 @@ message AddUserRequest {
 }
 
 message GetUserResponse {
-    string user_id = 1;
+    string id = 1;
 }
 
 message ListUserRequest {}

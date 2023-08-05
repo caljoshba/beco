@@ -1,4 +1,4 @@
-use crate::{traits::{value::Values, key::Key}, chain::chain_custody::ChainCustody, enums::cypto_algortihms::EVMAlgortithm, errors::key::CreateKeyError, response::WalletResponse};
+use crate::{traits::{value::Values, key::Key}, chain::chain_custody::ChainCustody, enums::cypto_algortihms::EVMAlgortithm, errors::key::CreateKeyError, response::WalletResponse, user::public_user::PublicUser};
 
 
 #[derive(Debug, Clone)]
@@ -33,11 +33,11 @@ impl Values<EVMKeyValues> for EVMKey {
 }
 
 impl Key<EVMAlgortithm> for ChainCustody<EVMKey, EVMKeyValues> {
-    fn create(&mut self, algorithm: Option<EVMAlgortithm>, alias: String) -> Result<WalletResponse, CreateKeyError> {
+    fn create(&mut self, algorithm: Option<EVMAlgortithm>, alias: String, public_user: &PublicUser) -> Result<WalletResponse, CreateKeyError> {
         unimplemented!()
     }
 
-    fn display(&self) -> Vec<WalletResponse> {
+    fn display(&self, public_user: &PublicUser) -> Vec<WalletResponse> {
         unimplemented!()
     }
 }

@@ -8,6 +8,8 @@ mod errors;
 mod enums;
 mod chain;
 mod response;
+mod permissioms;
+mod user;
 mod server;
 mod proto;
 

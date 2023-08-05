@@ -11,3 +11,5 @@ https://grpc.io/docs/protoc-installation/
 
 https://konghq.com/blog/engineering/building-grpc-apis-with-rust
 https://protobuf.dev/programming-guides/proto3/#enum-value-options
+
+cargo run --release --bin server

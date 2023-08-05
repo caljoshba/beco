@@ -7,6 +7,7 @@ use crate::chain::chain_user::User;
 use crate::proto::beco::beco_server::Beco;
 use crate::proto::beco::{ListAccountRequest, ListAccountResponse, WalletResponse, AddAccountRequest};
 use crate::proto::beco::{AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse};
+use crate::user::public_user::PublicUser;
 
 const BAD_BLOCKCHAIN: &str = "Invalid Blockchain value provided";
 const BAD_ACCOUNT: &str = "No matching account found";
@@ -19,7 +20,10 @@ pub struct BecoImplementation {
 #[tonic::async_trait]
 impl Beco for BecoImplementation {
     async fn add_user(&self, request: Request<AddUserRequest>) -> Result<Response<GetUserResponse>, Status> {
-        unimplemented!()
+        let data = request.into_inner();
+        let user = User::new(data.name);
+        self.users.lock().await.insert(user.id.to_string(), user.clone());
+        Ok(Response::new(user.into()))
     }
 
     async fn list_user(&self, request: Request<ListUserRequest>) -> Result<Response<ListUserResponse>, Status> {
@@ -34,7 +38,8 @@ impl Beco for BecoImplementation {
             return Err(Status::not_found(BAD_ACCOUNT));
         }
         let user = user_option.unwrap();
-        let wallet_response_result = user.add_account(inner_request.blockchain.into(), inner_request.alias);
+        let public_user = PublicUser::new(inner_request.calling_user);
+        let wallet_response_result = user.add_account(inner_request.blockchain.into(), inner_request.alias, &public_user);
         if let Err(err) = wallet_response_result {
             return Err(Status::already_exists(err.message));
         }
@@ -46,8 +51,9 @@ impl Beco for BecoImplementation {
         let inner_request = request.into_inner();
         let users = self.users.lock().await;
         let user_option: Option<&User> = users.get(&inner_request.user_id);
+        let public_user = PublicUser::new(inner_request.calling_user);
         if let Some(user) = user_option {
-            let wallet_response = user.get_chain_accounts(inner_request.blockchain.into());
+            let wallet_response = user.get_chain_accounts(inner_request.blockchain.into(), &public_user);
             return Ok(Response::new(ListAccountResponse {
                 wallets: wallet_response.iter().map(|wallet| wallet.into()).collect(),
                 blockchain: inner_request.blockchain,
@@ -59,9 +65,7 @@ impl Beco for BecoImplementation {
 
 impl Default for BecoImplementation {
     fn default() -> Self {
-        let user = User::new();
-        let mut users: HashMap<String, User> = HashMap::new();
-        users.insert(user.id.to_string(), user);
+        let users: HashMap<String, User> = HashMap::new();
         Self { users: Arc::new(Mutex::new(users)) }
     }
 }

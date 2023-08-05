@@ -1,4 +1,4 @@
-use crate::{traits::{key::Key, value::Values}, errors::key::CreateKeyError, chain::chain_custody::ChainCustody, response::WalletResponse};
+use crate::{traits::{key::Key, value::Values}, errors::key::CreateKeyError, chain::chain_custody::ChainCustody, response::WalletResponse, user::public_user::PublicUser};
 use xrpl::{core::keypairs::{generate_seed, derive_keypair, derive_classic_address}, constants::CryptoAlgorithm};
 
 #[derive(Debug, Clone)]
@@ -52,8 +52,8 @@ impl Values<XRPLKeyValues> for XRPLKey {
 }
 
 impl Key<CryptoAlgorithm> for ChainCustody<XRPLKey, XRPLKeyValues>  {
-    fn create(&mut self, algorithm: Option<CryptoAlgorithm>, alias: String) -> Result<WalletResponse, CreateKeyError> {
-        let does_alias_exist = self.does_alias_exist(alias.clone());
+    fn create(&mut self, algorithm: Option<CryptoAlgorithm>, alias: String, public_user: &PublicUser) -> Result<WalletResponse, CreateKeyError> {
+        let does_alias_exist = self.does_alias_exist(alias.clone(), public_user);
         if does_alias_exist {
             return Err(CreateKeyError{ chain: self.chain.clone(), message: "Alias already exists" });
         }
@@ -65,7 +65,12 @@ impl Key<CryptoAlgorithm> for ChainCustody<XRPLKey, XRPLKeyValues>  {
         let (public_key, private_key) = derive_keypair(&seed, false).unwrap();
         let classic_address = derive_classic_address(&public_key).unwrap();
         let key = XRPLKey::new(seed, public_key, private_key, classic_address, alias);
-        self.keys.push(key.clone());
+        let keys_result = self.keys.value_mut(public_user);
+        if keys_result.is_err() {
+            return Err(CreateKeyError{ chain: self.chain.clone(), message: "User does not have permission to create a new key" });
+        }
+        let keys = keys_result.unwrap();
+        keys.push(key.clone());
         Ok(WalletResponse {
             alias: key.alias(),
             public_key: key.public_key(),
@@ -73,8 +78,8 @@ impl Key<CryptoAlgorithm> for ChainCustody<XRPLKey, XRPLKeyValues>  {
         })
     }
 
-    fn display(&self) -> Vec<WalletResponse> {
-        self.keys.iter().map(|key| {
+    fn display(&self, public_user: &PublicUser) -> Vec<WalletResponse> {
+        self.keys.value(public_user).unwrap_or(vec![]).iter().map(|key| {
             WalletResponse {
                 alias: key.alias(),
                 public_key: key.public_key(),
