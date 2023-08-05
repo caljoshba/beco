@@ -11,8 +11,6 @@ mod response;
 mod server;
 mod proto;
 
-mod test;
-
 
 use tonic::transport::Server;
 

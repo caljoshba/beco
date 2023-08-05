@@ -1,24 +1,12 @@
-// use futures::Stream;
-// use std::borrow::BorrowMut;
 use std::collections::HashMap;
-// use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
-// use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
-
-// use crate::store::inventory_server::Inventory;
-// use crate::store::{
-//     InventoryChangeResponse, InventoryUpdateResponse, Item, ItemIdentifier, PriceChangeRequest,
-//     QuantityChangeRequest,
-// };
 
 use crate::chain::chain_user::User;
 use crate::proto::beco::beco_server::Beco;
 use crate::proto::beco::{ListAccountRequest, ListAccountResponse, WalletResponse, AddAccountRequest};
 use crate::proto::beco::{AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse};
-// use crate::wallet::keys_server::Keys;
-// use crate::wallet::{AccountType, AccountListResponse, WalletResponse, AddAccount};
 
 const BAD_BLOCKCHAIN: &str = "Invalid Blockchain value provided";
 const BAD_ACCOUNT: &str = "No matching account found";

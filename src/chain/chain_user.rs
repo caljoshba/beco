@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use uuid::{Uuid};
+use uuid::Uuid;
 
 use crate::{
     enums::blockchain::{Blockchain, BlockchainCustody},
