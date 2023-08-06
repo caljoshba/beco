@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{enums::blockchain::Blockchain, chain::chain_user::User, response::WalletResponse};
+use crate::{enums::blockchain::Blockchain, user::user::User, response::WalletResponse};
 
 #[test]
 fn create_new_user() {

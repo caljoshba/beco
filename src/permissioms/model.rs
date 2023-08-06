@@ -21,13 +21,16 @@ impl<T> PermissionModel<T>  where T: Clone {
     }
 
     pub fn value_mut(&mut self, user: &PublicUser) -> Result<&mut T, PermissionError> {
-        if user != &self.owner {
+        if user != &self.owner && self.editors.iter().find(|&usr| usr == user).is_none(){
             return Err(PermissionError { key: &self.key, message: "User does not have permission to view this value" })
         }
         Ok(&mut self.value)
     }
 
-    pub fn add_viewer(&mut self, user: PublicUser) -> Result<(), PermissionError> {
+    pub fn add_viewer(&mut self, user: PublicUser, calling_user: &PublicUser) -> Result<(), PermissionError> {
+        if &self.owner != calling_user && self.editors.iter().find(|&usr| usr == calling_user).is_none() {
+            return Err(PermissionError { key: &self.key, message: "User does not have permission to add a viewer" })
+        }
         if self.owner == user {
             return Err(PermissionError { key: &self.key, message: "User is owner" })
         }
@@ -38,14 +41,45 @@ impl<T> PermissionModel<T>  where T: Clone {
         Ok(())
     }
 
-    pub fn remove_user(&mut self, user: PublicUser) -> Result<(), PermissionError> {
+    pub fn add_editor(&mut self, user: PublicUser, calling_user: &PublicUser) -> Result<(), PermissionError> {
+        if &self.owner != calling_user && self.editors.iter().find(|&usr| usr == calling_user).is_none() {
+            return Err(PermissionError { key: &self.key, message: "User does not have permission to add an editor" })
+        }
+        if self.owner == user {
+            return Err(PermissionError { key: &self.key, message: "User is owner" })
+        }
+        if self.editors.iter().find(|&usr| usr == &user).is_some() {
+            return Err(PermissionError { key: &self.key, message: "User already has permission to edit this value" })
+        }
+        self.editors.push(user);
+        Ok(())
+    }
+
+    pub fn remove_viewer(&mut self, user: PublicUser, calling_user: &PublicUser) -> Result<(), PermissionError> {
+        if &self.owner != calling_user && self.editors.iter().find(|&usr| usr == calling_user).is_none() {
+            return Err(PermissionError { key: &self.key, message: "User does not have permission to remove a viewer" })
+        }
         if self.owner == user {
             return Err(PermissionError { key: &self.key, message: "Cannot remove owner" })
         }
         if !self.viewers.iter().any(|usr| usr == &user) {
-            return Err(PermissionError { key: &self.key, message: "User does not have permission to view this value" })
+            return Err(PermissionError { key: &self.key, message: "User does not have permission to add a viewer" })
         }
         self.viewers = self.viewers.iter().cloned().filter(|usr| usr != &user).collect();
+        Ok(())
+    }
+
+    pub fn remove_editor(&mut self, user: PublicUser, calling_user: &PublicUser) -> Result<(), PermissionError> {
+        if &self.owner != calling_user && self.editors.iter().find(|&usr| usr == calling_user).is_none() {
+            return Err(PermissionError { key: &self.key, message: "User does not have permission to remove an editor" })
+        }
+        if self.owner == user {
+            return Err(PermissionError { key: &self.key, message: "Cannot remove owner" })
+        }
+        if !self.viewers.iter().any(|usr| usr == &user) {
+            return Err(PermissionError { key: &self.key, message: "User does not have permission to remove an editor" })
+        }
+        self.editors = self.editors.iter().cloned().filter(|usr| usr != &user).collect();
         Ok(())
     }
 }

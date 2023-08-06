@@ -3,11 +3,10 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
-use crate::chain::chain_user::User;
 use crate::proto::beco::beco_server::Beco;
 use crate::proto::beco::{ListAccountRequest, ListAccountResponse, WalletResponse, AddAccountRequest};
 use crate::proto::beco::{AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse};
-use crate::user::public_user::PublicUser;
+use crate::user::{public_user::PublicUser, user::User};
 
 const BAD_BLOCKCHAIN: &str = "Invalid Blockchain value provided";
 const BAD_ACCOUNT: &str = "No matching account found";
