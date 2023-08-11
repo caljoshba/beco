@@ -10,6 +10,8 @@ extend google.protobuf.EnumValueOptions {
 service Beco {
     rpc ListUser(ListUserRequest) returns (ListUserResponse);
     rpc AddUser(AddUserRequest) returns (GetUserResponse);
+    rpc AddLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
+    rpc RemoveLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
     rpc ListAccount(ListAccountRequest) returns (ListAccountResponse);
     rpc AddAccount(AddAccountRequest) returns (WalletResponse);
 }
@@ -49,7 +51,7 @@ message WalletResponse {
 }
 
 message AddUserRequest {
-    string name = 1;
+    optional string name = 1;
 }
 
 message GetUserResponse {
@@ -60,4 +62,9 @@ message ListUserRequest {}
 
 message ListUserResponse {
     repeated GetUserResponse users = 1;
+}
+
+message ModifyLinkedUserRequest {
+    string calling_user = 1;
+    string user = 2;
 }

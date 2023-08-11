@@ -9,10 +9,10 @@ pub struct ChainCustody<T, A> where T: Values<A> + Clone {
 }
 
 impl<T, A> ChainCustody<T, A> where T: Values<A> + Clone {
-    pub fn new(chain: Blockchain, owner: PublicUser) -> Self {
+    pub fn new(chain: Blockchain, owner_id: String) -> Self {
         Self {
             chain,
-            keys: PermissionModel::new(owner, vec![], "keys".into()),
+            keys: PermissionModel::new(owner_id, vec![], "keys".into()),
             phantom_type: PhantomData
         }
     }
