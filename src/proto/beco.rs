@@ -67,6 +67,22 @@ pub struct ModifyLinkedUserRequest {
     #[prost(string, tag = "2")]
     pub user: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ModifyNameRequest {
+    #[prost(string, tag = "1")]
+    pub calling_user: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ModifyOtherNamesRequest {
+    #[prost(string, tag = "1")]
+    pub calling_user: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub other_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum Blockchain {
@@ -272,6 +288,77 @@ pub mod beco_client {
                 .insert(GrpcMethod::new("beco.Beco", "RemoveLinkedUser"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn update_first_name(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ModifyNameRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetUserResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/beco.Beco/UpdateFirstName",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "UpdateFirstName"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn update_other_names(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ModifyOtherNamesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetUserResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/beco.Beco/UpdateOtherNames",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("beco.Beco", "UpdateOtherNames"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn update_last_name(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ModifyNameRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetUserResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/beco.Beco/UpdateLastName");
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "UpdateLastName"));
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn list_account(
             &mut self,
             request: impl tonic::IntoRequest<super::ListAccountRequest>,
@@ -340,6 +427,18 @@ pub mod beco_server {
         async fn remove_linked_user(
             &self,
             request: tonic::Request<super::ModifyLinkedUserRequest>,
+        ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
+        async fn update_first_name(
+            &self,
+            request: tonic::Request<super::ModifyNameRequest>,
+        ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
+        async fn update_other_names(
+            &self,
+            request: tonic::Request<super::ModifyOtherNamesRequest>,
+        ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
+        async fn update_last_name(
+            &self,
+            request: tonic::Request<super::ModifyNameRequest>,
         ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
         async fn list_account(
             &self,
@@ -593,6 +692,140 @@ pub mod beco_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = RemoveLinkedUserSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/beco.Beco/UpdateFirstName" => {
+                    #[allow(non_camel_case_types)]
+                    struct UpdateFirstNameSvc<T: Beco>(pub Arc<T>);
+                    impl<T: Beco> tonic::server::UnaryService<super::ModifyNameRequest>
+                    for UpdateFirstNameSvc<T> {
+                        type Response = super::GetUserResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ModifyNameRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).update_first_name(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = UpdateFirstNameSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/beco.Beco/UpdateOtherNames" => {
+                    #[allow(non_camel_case_types)]
+                    struct UpdateOtherNamesSvc<T: Beco>(pub Arc<T>);
+                    impl<
+                        T: Beco,
+                    > tonic::server::UnaryService<super::ModifyOtherNamesRequest>
+                    for UpdateOtherNamesSvc<T> {
+                        type Response = super::GetUserResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ModifyOtherNamesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).update_other_names(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = UpdateOtherNamesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/beco.Beco/UpdateLastName" => {
+                    #[allow(non_camel_case_types)]
+                    struct UpdateLastNameSvc<T: Beco>(pub Arc<T>);
+                    impl<T: Beco> tonic::server::UnaryService<super::ModifyNameRequest>
+                    for UpdateLastNameSvc<T> {
+                        type Response = super::GetUserResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ModifyNameRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).update_last_name(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = UpdateLastNameSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

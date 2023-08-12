@@ -49,6 +49,10 @@ impl User {
         }
     }
 
+    pub fn as_public_user(&self, calling_user: &PublicUser) -> PublicUser {
+        self.user_details.as_public_user(calling_user)
+    }
+
     pub fn user_details_mut(&mut self, calling_user: &PublicUser) -> Result<&mut UserDetails, PermissionError> {
         if calling_user.id != self.id.to_string() {
             return Err(PermissionError { key: "Get mutable User Details", message: "User does not have permission to update user details" });

@@ -24,6 +24,8 @@ impl UserDetails {
         PublicUser {
             id: self.id.clone(),
             first_name: self.first_name.value(user).unwrap_or(None),
+            other_names: self.other_names.value(user).unwrap_or(None),
+            last_name: self.last_name.value(user).unwrap_or(None),
         }
     }
 

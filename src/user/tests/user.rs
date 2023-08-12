@@ -7,7 +7,7 @@ use crate::{enums::blockchain::Blockchain, user::{user::User, public_user::Publi
 #[test]
 fn create_new_user() {
     let user: User = User::new(Some("hjdsj-98d8-oops".into()));
-    let public_user = PublicUser { id: user.id.to_string(), first_name: None };
+    let public_user = PublicUser { id: user.id.to_string(), first_name: None, other_names: None, last_name: None };
     let accounts = user.get_chain_accounts(Blockchain::XRPL, &public_user);
     assert_eq!(accounts, vec![]);
 }
@@ -15,7 +15,7 @@ fn create_new_user() {
 #[test]
 fn add_account() {
     let mut user: User = User::new(Some("hjdsj-98d8-oops".into()));
-    let public_user = PublicUser { id: user.id.to_string(), first_name: None };
+    let public_user = PublicUser { id: user.id.to_string(), first_name: None, other_names: None, last_name: None };
     let result = user.add_account(Blockchain::XRPL, "test".into(), &public_user).unwrap();
     let accounts = user.get_chain_accounts(Blockchain::XRPL, &public_user);
     let expected_response = vec![WalletResponse {
@@ -29,7 +29,7 @@ fn add_account() {
 #[test]
 fn add_account_invalid_blockchain() {
     let mut user: User = User::new(Some("hjdsj-98d8-oops".into()));
-    let public_user = PublicUser { id: user.id.to_string(), first_name: None };
+    let public_user = PublicUser { id: user.id.to_string(), first_name: None, other_names: None, last_name: None };
     let result = user.add_account(Blockchain::UNSPECIFIED, "test".into(), &public_user);
     let expected_error = "No blockchain set";
     assert_eq!(result.unwrap_err().message, expected_error);
@@ -39,7 +39,7 @@ fn add_account_invalid_blockchain() {
 fn add_linked_user() {
     let mut user: User = User::new(Some("hjdsj-98d8-oops".into()));
     let id = Uuid::new_v4();
-    let public_user = PublicUser { id: id.to_string(), first_name: None };
+    let public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     user.add_linked_user(&public_user);
     let linked_users = user.linked_users();
     assert_eq!(linked_users.len(), 1);
@@ -50,8 +50,8 @@ fn add_linked_user() {
 fn remove_linked_user() {
     let mut user: User = User::new(Some("hjdsj-98d8-oops".into()));
     let id = Uuid::new_v4();
-    let calling_user = PublicUser { id: user.id.to_string(), first_name: None };
-    let public_user = PublicUser { id: id.to_string(), first_name: None };
+    let calling_user = PublicUser { id: user.id.to_string(), first_name: None, other_names: None, last_name: None };
+    let public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     user.add_linked_user(&public_user);
     let linked_users = user.linked_users();
 
@@ -70,7 +70,7 @@ fn remove_linked_user() {
 fn remove_linked_user_as_linked_user() {
     let mut user: User = User::new(Some("hjdsj-98d8-oops".into()));
     let id = Uuid::new_v4();
-    let public_user = PublicUser { id: id.to_string(), first_name: None };
+    let public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     user.add_linked_user(&public_user);
     let linked_users = user.linked_users();
 
@@ -89,8 +89,8 @@ fn remove_linked_user_as_linked_user() {
 fn remove_linked_user_invalid_calling_user() {
     let mut user: User = User::new(Some("hjdsj-98d8-oops".into()));
     let id = Uuid::new_v4();
-    let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None };
-    let public_user = PublicUser { id: id.to_string(), first_name: None };
+    let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
+    let public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     user.add_linked_user(&public_user);
     let linked_users = user.linked_users();
 
@@ -109,9 +109,9 @@ fn remove_linked_user_invalid_calling_user() {
 fn remove_linked_user_does_not_exist() {
     let mut user: User = User::new(Some("hjdsj-98d8-oops".into()));
     let id = Uuid::new_v4();
-    let calling_user = PublicUser { id: user.id.to_string(), first_name: None };
-    let public_user = PublicUser { id: id.to_string(), first_name: None };
-    let non_existant_public_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None };
+    let calling_user = PublicUser { id: user.id.to_string(), first_name: None, other_names: None, last_name: None };
+    let public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
+    let non_existant_public_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
     user.add_linked_user(&public_user);
     let linked_users = user.linked_users();
 

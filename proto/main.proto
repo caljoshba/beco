@@ -12,6 +12,11 @@ service Beco {
     rpc AddUser(AddUserRequest) returns (GetUserResponse);
     rpc AddLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
     rpc RemoveLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
+    rpc UpdateFirstName(ModifyNameRequest) returns (GetUserResponse);
+    rpc UpdateOtherNames(ModifyOtherNamesRequest) returns (GetUserResponse);
+    rpc UpdateLastName(ModifyNameRequest) returns (GetUserResponse);
+
+
     rpc ListAccount(ListAccountRequest) returns (ListAccountResponse);
     rpc AddAccount(AddAccountRequest) returns (WalletResponse);
 }
@@ -67,4 +72,14 @@ message ListUserResponse {
 message ModifyLinkedUserRequest {
     string calling_user = 1;
     string user = 2;
+}
+
+message ModifyNameRequest {
+    string calling_user = 1;
+    string name = 2;
+}
+
+message ModifyOtherNamesRequest {
+    string calling_user = 1;
+    repeated string other_names = 2;
 }

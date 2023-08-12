@@ -8,7 +8,7 @@ use crate::user::{public_user::PublicUser, user_details::UserDetails};
 fn create_new_user_details() {
     let id = Uuid::new_v4();
     let user_details = UserDetails::new(id.to_string(), None);
-    let public_user = PublicUser { id: id.to_string(), first_name: None };
+    let public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     
     assert_eq!(user_details.first_name.value(&public_user).unwrap(), None);
 }
@@ -17,7 +17,7 @@ fn create_new_user_details() {
 fn update_first_name() {
     let id = Uuid::new_v4();
     let mut user_details = UserDetails::new(id.to_string(), None);
-    let public_user = PublicUser { id: id.to_string(), first_name: None };
+    let public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     
     assert_eq!(user_details.first_name.value(&public_user).unwrap(), None);
 
@@ -33,8 +33,8 @@ fn update_first_name() {
 fn update_first_name_fail_permission() {
     let id = Uuid::new_v4();
     let mut user_details = UserDetails::new(id.to_string(), None);
-    let owner_public_user = PublicUser { id: id.to_string(), first_name: None };
-    let public_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None };
+    let owner_public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
+    let public_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
     
     assert_eq!(user_details.first_name.value(&owner_public_user).unwrap(), None);
 
@@ -50,7 +50,7 @@ fn update_first_name_fail_permission() {
 fn update_other_names() {
     let id = Uuid::new_v4();
     let mut user_details = UserDetails::new(id.to_string(), None);
-    let public_user = PublicUser { id: id.to_string(), first_name: None };
+    let public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     
     assert_eq!(user_details.other_names.value(&public_user).unwrap(), None);
 
@@ -66,8 +66,8 @@ fn update_other_names() {
 fn update_other_names_fail_permission() {
     let id = Uuid::new_v4();
     let mut user_details = UserDetails::new(id.to_string(), None);
-    let owner_public_user = PublicUser { id: id.to_string(), first_name: None };
-    let public_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None };
+    let owner_public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
+    let public_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None};
     
     assert_eq!(user_details.other_names.value(&owner_public_user).unwrap(), None);
 
@@ -83,7 +83,7 @@ fn update_other_names_fail_permission() {
 fn update_last_name() {
     let id = Uuid::new_v4();
     let mut user_details = UserDetails::new(id.to_string(), None);
-    let public_user = PublicUser { id: id.to_string(), first_name: None };
+    let public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     
     assert_eq!(user_details.last_name.value(&public_user).unwrap(), None);
 
@@ -99,8 +99,8 @@ fn update_last_name() {
 fn update_last_name_fail_permission() {
     let id = Uuid::new_v4();
     let mut user_details = UserDetails::new(id.to_string(), None);
-    let owner_public_user = PublicUser { id: id.to_string(), first_name: None };
-    let public_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None };
+    let owner_public_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
+    let public_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
     
     assert_eq!(user_details.last_name.value(&owner_public_user).unwrap(), None);
 
