@@ -1,3 +1,5 @@
+use crate::proto::beco::GetUserResponse;
+
 #[derive(Debug, Clone)]
 pub struct PublicUser {
     pub id: String,
@@ -15,5 +17,16 @@ impl PublicUser {
 impl PartialEq for PublicUser {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+    }
+}
+
+impl Into<GetUserResponse> for PublicUser {
+    fn into(self) -> GetUserResponse {
+        GetUserResponse {
+            id: self.id.clone(),
+            first_name: self.first_name.clone(),
+            other_names: if self.other_names.is_none() { vec![] } else { self.other_names.unwrap() },
+            last_name: self.last_name,
+        }
     }
 }

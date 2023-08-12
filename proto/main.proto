@@ -61,9 +61,15 @@ message AddUserRequest {
 
 message GetUserResponse {
     string id = 1;
+    optional string first_name = 2;
+    repeated string other_names = 3;
+    optional string last_name = 4;
 }
 
-message ListUserRequest {}
+message ListUserRequest {
+    string user_id = 1;
+    string calling_user = 2;
+}
 
 message ListUserResponse {
     repeated GetUserResponse users = 1;
@@ -71,15 +77,17 @@ message ListUserResponse {
 
 message ModifyLinkedUserRequest {
     string calling_user = 1;
-    string user = 2;
+    string user_id = 2;
 }
 
 message ModifyNameRequest {
-    string calling_user = 1;
-    string name = 2;
+    string user_id = 1;
+    string calling_user = 2;
+    string name = 3;
 }
 
 message ModifyOtherNamesRequest {
-    string calling_user = 1;
-    repeated string other_names = 2;
+    string user_id = 1;
+    string calling_user = 2;
+    repeated string other_names = 3;
 }

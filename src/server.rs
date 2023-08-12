@@ -17,11 +17,6 @@ pub struct BecoImplementation {
     users: Arc<Mutex<HashMap<String, User>>>,
 }
 
-struct RequestUser {
-    pub public_user: PublicUser,
-    pub calling_user: PublicUser,
-}
-
 impl BecoImplementation {
 
     fn get_public_user<'a>(&'a self, user_option: &Option<&'a User>, user_id: String, calling_user_id: String) -> PublicUser {
@@ -40,27 +35,29 @@ impl Beco for BecoImplementation {
     async fn add_user(&self, request: Request<AddUserRequest>) -> Result<Response<GetUserResponse>, Status> {
         let data = request.into_inner();
         let user = User::new(data.name);
-        self.users.lock().await.insert(user.id.to_string(), user.clone());
-        Ok(Response::new(user.into()))
+        let mut users = self.users.lock().await;
+        users.insert(user.id.to_string(), user.clone());
+        let calling_user = self.get_public_user(&users.get(&user.id.to_string()), user.id.to_string(), user.id.to_string());
+        Ok(Response::new(calling_user.into()))
     }
 
     async fn list_user(&self, request: Request<ListUserRequest>) -> Result<Response<ListUserResponse>, Status> {
-        unimplemented!()
+        let inner_request = request.into_inner();
+        let users = &mut self.users.lock().await;
+        let public_user = self.get_public_user(&users.get(&inner_request.user_id), inner_request.user_id.clone(), inner_request.calling_user.clone());
+        Ok(Response::new(ListUserResponse{ users: vec![public_user.into()] }))
     }
 
     async fn add_account(&self, request: Request<AddAccountRequest>) -> Result<Response<WalletResponse>, Status> {
         let inner_request = request.into_inner();
         let users = &mut self.users.lock().await;
-        let request_users = RequestUser { 
-            public_user: self.get_public_user(&users.get(&inner_request.user_id), inner_request.user_id.clone(), inner_request.calling_user.clone()),
-            calling_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-        };
+        let calling_user = self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone());
         let user_option = users.get_mut(&inner_request.user_id);
         if user_option.is_none() {
             return Err(Status::not_found(BAD_ACCOUNT));
         }
         let user = user_option.unwrap();
-        let wallet_response_result = user.add_account(inner_request.blockchain.into(), inner_request.alias, &request_users.calling_user);
+        let wallet_response_result = user.add_account(inner_request.blockchain.into(), inner_request.alias, &calling_user);
         if let Err(err) = wallet_response_result {
             return Err(Status::already_exists(err.message));
         }
@@ -71,13 +68,10 @@ impl Beco for BecoImplementation {
     async fn list_account(&self, request: Request<ListAccountRequest>) -> Result<Response<ListAccountResponse>, Status> {
         let inner_request = request.into_inner();
         let users = &mut self.users.lock().await;
-        let request_users = RequestUser { 
-            public_user: self.get_public_user(&users.get(&inner_request.user_id), inner_request.user_id.clone(), inner_request.calling_user.clone()),
-            calling_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-        };
+        let calling_user = self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone());
         let user_option = users.get_mut(&inner_request.user_id);
         if let Some(user) = user_option {
-            let wallet_response = user.get_chain_accounts(inner_request.blockchain.into(), &request_users.calling_user);
+            let wallet_response = user.get_chain_accounts(inner_request.blockchain.into(), &calling_user);
             return Ok(Response::new(ListAccountResponse {
                 wallets: wallet_response.iter().map(|wallet| wallet.into()).collect(),
                 blockchain: inner_request.blockchain,
@@ -89,60 +83,52 @@ impl Beco for BecoImplementation {
     async fn update_first_name(&self, request: Request<ModifyNameRequest>) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
         let users = &mut self.users.lock().await;
-        let request_users = RequestUser { 
-            public_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-            calling_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-        };
-        let user_option = users.get_mut(&inner_request.calling_user);
+        let calling_user = self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone());
+        let user_option = users.get_mut(&inner_request.user_id);
         if user_option.is_none() {
             return Err(Status::not_found(BAD_ACCOUNT));
         }
         let user = user_option.unwrap();
-        let result = user.user_details.first_name.update(Some(inner_request.name), &request_users.calling_user);
+        let result = user.user_details.first_name.update(Some(inner_request.name), &calling_user);
         if result.is_err() {
             Err(Status::permission_denied(NOT_AUTH))
         } else {
-            Ok(Response::new(GetUserResponse { id: request_users.calling_user.id }))
+            Ok(Response::new(user.as_public_user(&calling_user).into()))
         }
     }
 
     async fn update_other_names(&self, request: Request<ModifyOtherNamesRequest>) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
         let users = &mut self.users.lock().await;
-        let request_users = RequestUser { 
-            public_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-            calling_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-        };
-        let user_option = users.get_mut(&inner_request.calling_user);
+        let calling_user = self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone());
+
+        let user_option = users.get_mut(&inner_request.user_id);
         if user_option.is_none() {
             return Err(Status::not_found(BAD_ACCOUNT));
         }
         let user = user_option.unwrap();
-        let result = user.user_details.other_names.update(Some(inner_request.other_names), &request_users.calling_user);
+        let result = user.user_details.other_names.update(Some(inner_request.other_names), &calling_user);
         if result.is_err() {
             Err(Status::permission_denied(NOT_AUTH))
         } else {
-            Ok(Response::new(GetUserResponse { id: request_users.calling_user.id }))
+            Ok(Response::new(user.as_public_user(&calling_user).into()))
         }
     }
 
     async fn update_last_name(&self, request: Request<ModifyNameRequest>) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
         let users = &mut self.users.lock().await;
-        let request_users = RequestUser { 
-            public_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-            calling_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-        };
-        let user_option = users.get_mut(&inner_request.calling_user);
+        let calling_user = self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone());
+        let user_option = users.get_mut(&inner_request.user_id);
         if user_option.is_none() {
             return Err(Status::not_found(BAD_ACCOUNT));
         }
         let user = user_option.unwrap();
-        let result = user.user_details.last_name.update(Some(inner_request.name), &request_users.calling_user);
+        let result = user.user_details.last_name.update(Some(inner_request.name), &calling_user);
         if result.is_err() {
             Err(Status::permission_denied(NOT_AUTH))
         } else {
-            Ok(Response::new(GetUserResponse { id: request_users.calling_user.id }))
+            Ok(Response::new(user.as_public_user(&calling_user).into()))
         }
     }
 
@@ -150,10 +136,11 @@ impl Beco for BecoImplementation {
         let inner_request = request.into_inner();
         let users = &mut self.users.lock().await;
         let user_option = users.get_mut(&inner_request.calling_user);
-        let new_user = PublicUser::new(inner_request.user, None, None, None);
+        let new_user = PublicUser::new(inner_request.user_id, None, None, None);
         if let Some(user) = user_option {
             user.add_linked_user(&new_user);
-            return Ok(Response::new(GetUserResponse { id: new_user.id }));
+            let calling_user = self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone());
+            return Ok(Response::new(calling_user.into()));
         }
         Err(Status::not_found(BAD_ACCOUNT))
     }
@@ -161,15 +148,12 @@ impl Beco for BecoImplementation {
     async fn remove_linked_user(&self, request:Request<ModifyLinkedUserRequest>) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
         let users = &mut self.users.lock().await;
-        let request_users = RequestUser { 
-            public_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-            calling_user: self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone()),
-        };
-        let remove_user = PublicUser::new(inner_request.user, None, None, None);
+        let calling_user = self.get_public_user(&users.get(&inner_request.calling_user), inner_request.calling_user.clone(), inner_request.calling_user.clone());
+        let remove_user = PublicUser::new(inner_request.user_id.clone(), None, None, None);
         let user_option = users.get_mut(&inner_request.calling_user);
         if let Some(user) = user_option {
-            let result = user.remove_linked_user(&remove_user, &request_users.calling_user);
-            return if result.is_ok() { Ok(Response::new(GetUserResponse { id: remove_user.id })) } else { Err(Status::permission_denied(result.err().unwrap().message)) };
+            let result = user.remove_linked_user(&remove_user, &calling_user);
+            return if result.is_ok() { Ok(Response::new(user.as_public_user(&calling_user).into())) } else { Err(Status::permission_denied(result.err().unwrap().message)) };
         }
         Err(Status::not_found(BAD_ACCOUNT))
     }

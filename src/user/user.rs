@@ -7,7 +7,7 @@ use crate::{
     chain::chain_custody::ChainCustody,
     response::WalletResponse,
     errors::{key::CreateKeyError, permission::PermissionError},
-    traits::key::Key, user::{public_user::PublicUser, user_details::UserDetails}, proto::beco::GetUserResponse
+    traits::key::Key, user::{public_user::PublicUser, user_details::UserDetails}
 };
 
 #[derive(Debug, Clone)]
@@ -106,12 +106,4 @@ impl User {
     }
 
 
-}
-
-impl Into<GetUserResponse> for User {
-    fn into(self) -> GetUserResponse {
-        GetUserResponse {
-            id: self.id.to_string(),
-        }
-    }
 }

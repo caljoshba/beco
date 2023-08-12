@@ -49,10 +49,21 @@ pub struct AddUserRequest {
 pub struct GetUserResponse {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "2")]
+    pub first_name: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag = "3")]
+    pub other_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "4")]
+    pub last_name: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListUserRequest {}
+pub struct ListUserRequest {
+    #[prost(string, tag = "1")]
+    pub user_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub calling_user: ::prost::alloc::string::String,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListUserResponse {
@@ -65,22 +76,26 @@ pub struct ModifyLinkedUserRequest {
     #[prost(string, tag = "1")]
     pub calling_user: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub user: ::prost::alloc::string::String,
+    pub user_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ModifyNameRequest {
     #[prost(string, tag = "1")]
-    pub calling_user: ::prost::alloc::string::String,
+    pub user_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
+    pub calling_user: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
     pub name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ModifyOtherNamesRequest {
     #[prost(string, tag = "1")]
+    pub user_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
     pub calling_user: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "2")]
+    #[prost(string, repeated, tag = "3")]
     pub other_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
