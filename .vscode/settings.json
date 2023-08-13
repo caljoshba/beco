@@ -2,6 +2,7 @@
     "rust-analyzer.linkedProjects": [
         "./Cargo.toml",
         "./Cargo.toml",
+        "./grpc/Cargo.toml",
         "./grpc/Cargo.toml"
     ]
 }
