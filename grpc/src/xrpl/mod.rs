@@ -55,11 +55,11 @@ impl Key<CryptoAlgorithm> for ChainCustody<XRPLKey, XRPLKeyValues>  {
     fn create(&mut self, algorithm: Option<CryptoAlgorithm>, alias: String, public_user: &PublicUser) -> Result<WalletResponse, CreateKeyError> {
         let does_alias_exist = self.does_alias_exist(alias.clone(), public_user);
         if does_alias_exist {
-            return Err(CreateKeyError{ chain: self.chain.clone(), message: "Alias already exists" });
+            return Err(CreateKeyError{ chain: self.chain.clone(), message: "Alias already exists".into() });
         }
         let seed_result = generate_seed(None, algorithm);
         if let Err(_error) = seed_result {
-            return Err(CreateKeyError{ chain: self.chain.clone(), message: "Error Generating seed" });
+            return Err(CreateKeyError{ chain: self.chain.clone(), message: "Error Generating seed".into() });
         }
         let seed = seed_result.unwrap();
         let (public_key, private_key) = derive_keypair(&seed, false).unwrap();
@@ -67,7 +67,7 @@ impl Key<CryptoAlgorithm> for ChainCustody<XRPLKey, XRPLKeyValues>  {
         let key = XRPLKey::new(seed, public_key, private_key, classic_address, alias);
         let keys_result = self.keys.value_mut(public_user);
         if keys_result.is_err() {
-            return Err(CreateKeyError{ chain: self.chain.clone(), message: "User does not have permission to create a new key" });
+            return Err(CreateKeyError{ chain: self.chain.clone(), message: "User does not have permission to create a new key".into() });
         }
         let keys = keys_result.unwrap();
         keys.push(key.clone());

@@ -1,18 +1,18 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, fmt::Debug};
 
-use crate::{enums::blockchain::Blockchain, traits::value::Values, permissioms::model::PermissionModel, user::public_user::PublicUser};
+use crate::{enums::{blockchain::Blockchain, value_reference::ValueReference}, traits::value::Values, permissioms::model::PermissionModel, user::public_user::PublicUser};
 #[derive(Debug, Clone)]
-pub struct ChainCustody<T, A> where T: Values<A> + Clone {
+pub struct ChainCustody<T, A> where T: Values<A> + Clone + Debug {
     pub chain: Blockchain,
     pub keys: PermissionModel<Vec<T>>,
     phantom_type: PhantomData<A>
 }
 
-impl<T, A> ChainCustody<T, A> where T: Values<A> + Clone {
+impl<T, A> ChainCustody<T, A> where T: Values<A> + Clone + Debug {
     pub fn new(chain: Blockchain, owner_id: String) -> Self {
         Self {
             chain,
-            keys: PermissionModel::new(owner_id, vec![], "keys".into()),
+            keys: PermissionModel::new(owner_id, vec![], "keys".into(), ValueReference::CHAIN_HEYS),
             phantom_type: PhantomData
         }
     }

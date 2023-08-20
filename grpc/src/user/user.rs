@@ -14,6 +14,7 @@ use crate::{
 pub struct User {
     pub id: Uuid,
     pub user_details: UserDetails,
+    sequence: u64,
     chain_accounts: HashMap<Blockchain, BlockchainCustody>,
     linked_users: HashMap<String, PublicUser>,
 }
@@ -24,6 +25,7 @@ impl Default for User {
         Self {
             id: id.clone(),
             user_details: UserDetails::new(id.to_string(), None),
+            sequence: 0,
             chain_accounts: User::generate_default_chain_accounts(id.to_string()),
             linked_users: HashMap::new(),
         }
@@ -44,9 +46,19 @@ impl User {
         Self {
             id: id.clone(),
             chain_accounts: User::generate_default_chain_accounts(id.to_string()),
+            sequence: 0,
             user_details: UserDetails::new(id.to_string(), first_name),
             linked_users: HashMap::new(),
         }
+    }
+
+    pub fn increase_sequence(&mut self) -> u64 {
+        self.sequence += 1;
+        self.sequence.clone()
+    }
+
+    pub fn sequence(&self) -> u64 {
+        self.sequence.clone()
     }
 
     pub fn as_public_user(&self, calling_user: &PublicUser) -> PublicUser {
@@ -74,7 +86,7 @@ impl User {
     pub fn add_account(&mut self, blockchain: Blockchain, alias: String, public_user: &PublicUser) -> Result<WalletResponse, CreateKeyError> {
         let accounts_option = self.chain_accounts.get_mut(&blockchain);
         if accounts_option.is_none() {
-            return Err(CreateKeyError{ chain: blockchain.clone(), message: "No blockchain set" });
+            return Err(CreateKeyError{ chain: blockchain.clone(), message: "No blockchain set".into() });
         }
         match accounts_option.unwrap() {
             BlockchainCustody::XRPL(xrpl_accounts) => xrpl_accounts.create(None, alias, public_user),

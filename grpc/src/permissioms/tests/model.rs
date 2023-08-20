@@ -2,14 +2,14 @@
 
 use uuid::Uuid;
 
-use crate::{permissioms::model::PermissionModel, user::public_user::PublicUser};
+use crate::{permissioms::model::PermissionModel, user::public_user::PublicUser, enums::value_reference::ValueReference};
 
 #[test]
 fn create_new_permission_model() {
     let id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     
@@ -21,7 +21,7 @@ fn get_value_throw_err() {
     let id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
     
@@ -34,7 +34,7 @@ fn add_viewer() {
     let viewer_id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None };
@@ -51,7 +51,7 @@ fn add_viewer_no_permissions() {
     let viewer_id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
     let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None };
@@ -66,7 +66,7 @@ fn add_viewer_owner() {
     let id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
 
@@ -81,7 +81,7 @@ fn add_viewer_twice_err() {
     let viewer_id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None };
@@ -101,7 +101,7 @@ fn add_viewer_cannot_mut() {
     let viewer_id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None };
@@ -118,7 +118,7 @@ fn add_editor() {
     let editor_id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
@@ -135,7 +135,7 @@ fn add_editor_no_permissions() {
     let editor_id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
     let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
@@ -152,7 +152,7 @@ fn add_editor_as_editor() {
     let second_editor_id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
@@ -174,7 +174,7 @@ fn add_editor_owner() {
     let id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
 
@@ -189,7 +189,7 @@ fn add_editor_twice_err() {
     let editor_id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
@@ -209,7 +209,7 @@ fn add_editor_can_mut() {
     let editor_id = Uuid::new_v4();
     let mut value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
@@ -225,7 +225,7 @@ fn get_value_mut() {
     let id = Uuid::new_v4();
     let mut value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     
@@ -237,7 +237,7 @@ fn remove_viewer() {
     let id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     let new_editor = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
@@ -262,7 +262,7 @@ fn remove_editor() {
     let id = Uuid::new_v4();
     let value: String = "whoop".into();
     let key: String = "blah".into();
-    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone());
+    let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
     let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
     let new_editor = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };

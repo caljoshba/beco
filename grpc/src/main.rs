@@ -5,12 +5,14 @@ mod xrpl;
 mod evm;
 mod traits;
 mod errors;
+mod entry;
 mod enums;
 mod chain;
 mod response;
 mod permissioms;
 mod user;
 mod server;
+mod state;
 mod proto;
 
 

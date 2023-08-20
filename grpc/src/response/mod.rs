@@ -1,6 +1,6 @@
 use crate::proto::beco::WalletResponse as ProtoWalletResponse;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct WalletResponse {
     pub alias: String,
     pub public_key: String,
