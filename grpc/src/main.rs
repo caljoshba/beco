@@ -34,8 +34,8 @@ mod beco_proto {
 
 static ENTRY: OnceCell<Entry> = OnceCell::const_new();
 
-async fn get_entry(tx_p2p: Sender<Value>, rx_p2p: Receiver<Value>, tx_grpc: Sender<Value>, rx_grpc: Receiver<Value>) -> &'static Entry {
-    ENTRY.get_or_init(|| async { Entry::new(tx_p2p, rx_p2p, tx_grpc, rx_grpc) }).await
+async fn get_entry(tx_p2p: Sender<Value>, tx_grpc: Sender<Value>, rx_grpc: Receiver<Value>) -> &'static Entry {
+    ENTRY.get_or_init(|| async { Entry::new(tx_p2p, tx_grpc, rx_grpc) }).await
 }
 
 #[tokio::main]
@@ -43,11 +43,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // https://tokio.rs/tokio/tutorial/channels
     let (tx_p2p, mut rx_p2p) = mpsc::channel::<Value>(32);
     let (tx_grpc, mut rx_grpc) = mpsc::channel::<Value>(32);
-    let entry = get_entry(tx_p2p, rx_p2p, tx_grpc, rx_grpc).await;
+    let entry = get_entry(tx_p2p, tx_grpc, rx_grpc).await;
     let mut swarm = P2P::new(entry).create_swarm().await?;
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
     tokio::spawn(async move {
-        P2P::loop_swarm(&mut swarm).await;
+        P2P::loop_swarm(&mut swarm, rx_p2p).await;
     });
     let addr = "127.0.0.1:9001".parse()?;
     let wallet = BecoImplementation::new(entry);

@@ -3,7 +3,7 @@ use crate::{
     enums::cypto_algortihms::EVMAlgortithm,
     errors::BecoError,
     traits::{key::Key, value::Values},
-    user::public_user::PublicUser,
+    user::public_user::PublicUser, proto::beco::AddAccountRequest,
 };
 
 #[derive(Debug, Clone)]
@@ -53,7 +53,7 @@ impl Key<EVMAlgortithm> for ChainCustody<EVMKey, EVMKeyValues> {
     fn create(
         &mut self,
         algorithm: Option<EVMAlgortithm>,
-        alias: String,
+        request: AddAccountRequest,
         public_user: &PublicUser,
     ) -> Result<(), BecoError> {
         unimplemented!()

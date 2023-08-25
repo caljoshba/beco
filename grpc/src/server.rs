@@ -35,12 +35,11 @@ impl Beco for BecoImplementation {
 
     async fn add_account(&self, request: Request<AddAccountRequest>) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
-        let result = self.entry.add_account(inner_request).await;
+        let result = self.entry.propose(DataRequests::AddAccount(inner_request.clone()), inner_request.calling_user.clone(), inner_request.user_id.clone()).await;
         if let Err(err) = result {
             return Err(Status::new(err.status, err.message));
         }
-        let user = result.unwrap();
-        Ok(Response::new(user))
+        Ok(Response::new(result.unwrap()))
     }
 
     async fn update_first_name(&self, request: Request<ModifyNameRequest>) -> Result<Response<GetUserResponse>, Status> {

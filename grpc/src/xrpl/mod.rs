@@ -2,7 +2,7 @@ use crate::{
     chain::chain_custody::{ChainCustody, PublicKey},
     errors::BecoError,
     traits::{key::Key, value::Values},
-    user::public_user::PublicUser,
+    user::public_user::PublicUser, proto::beco::AddAccountRequest,
 };
 use tonic::Code;
 use xrpl::{
@@ -79,9 +79,10 @@ impl Key<CryptoAlgorithm> for ChainCustody<XRPLKey, XRPLKeyValues> {
     fn create(
         &mut self,
         algorithm: Option<CryptoAlgorithm>,
-        alias: String,
+        request: AddAccountRequest,
         public_user: &PublicUser,
     ) -> Result<(), BecoError> {
+        let alias = request.alias;
         let does_alias_exist = self.does_alias_exist(alias.clone(), public_user);
         if does_alias_exist {
             return Err(BecoError {

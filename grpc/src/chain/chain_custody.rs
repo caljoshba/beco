@@ -53,7 +53,13 @@ where
                 status: Code::AlreadyExists,
             });
         }
-        unimplemented!()
+        if !PermissionModel::is_owner_or_editor(&self.keys, calling_user) {
+            return Err(BecoError {
+                message: "User does not have permission to create a new key".into(),
+                status: Code::PermissionDenied,
+            });
+        }
+        Ok(())
     }
 
     pub fn as_public(&self, calling_user: &PublicUser) -> PublicChainCustody {

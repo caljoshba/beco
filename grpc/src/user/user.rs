@@ -8,7 +8,7 @@ use crate::{
     enums::blockchain::{Blockchain, BlockchainCustody},
     errors::BecoError,
     traits::key::Key,
-    user::{public_user::PublicUser, user_details::UserDetails},
+    user::{public_user::PublicUser, user_details::UserDetails}, proto::beco::AddAccountRequest,
 };
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
@@ -70,25 +70,12 @@ impl User {
             .as_public_user(calling_user, chain_accounts)
     }
 
-    pub fn user_details_mut(
-        &mut self,
-        calling_user: &PublicUser,
-    ) -> Result<&mut UserDetails, BecoError> {
-        if calling_user.id != self.id.to_string() {
-            return Err(BecoError {
-                message: "User does not have permission to update user details".into(),
-                status: Code::PermissionDenied,
-            });
-        }
-        Ok(&mut self.user_details)
-    }
-
     pub fn add_account(
         &mut self,
-        blockchain: Blockchain,
-        alias: String,
-        public_user: &PublicUser,
+        request: AddAccountRequest,
+        calling_user: &PublicUser,
     ) -> Result<(), BecoError> {
+        let blockchain: Blockchain = request.blockchain.into();
         let accounts_option = self.chain_accounts.get_mut(&blockchain);
         if accounts_option.is_none() {
             return Err(BecoError {
@@ -98,9 +85,30 @@ impl User {
         }
         match accounts_option.unwrap() {
             BlockchainCustody::XRPL(xrpl_accounts) => {
-                xrpl_accounts.create(None, alias, public_user)
+                xrpl_accounts.create(None, request, calling_user)
             }
-            BlockchainCustody::EVM(evm_accounts) => evm_accounts.create(None, alias, public_user),
+            BlockchainCustody::EVM(evm_accounts) => evm_accounts.create(None, request, calling_user),
+        }
+    }
+
+    pub fn propose_account(
+        &self,
+        request: AddAccountRequest,
+        calling_user: &PublicUser,
+    ) -> Result<(), BecoError> {
+        let blockchain: Blockchain = request.blockchain.into();
+        let accounts_option = self.chain_accounts.get(&blockchain);
+        if accounts_option.is_none() {
+            return Err(BecoError {
+                message: format!("No blockchain set: {}", blockchain.clone()),
+                status: Code::OutOfRange,
+            });
+        }
+        match accounts_option.unwrap() {
+            BlockchainCustody::XRPL(xrpl_accounts) => {
+                xrpl_accounts.propose(request, calling_user)
+            }
+            BlockchainCustody::EVM(evm_accounts) => evm_accounts.propose(request, calling_user),
         }
     }
 

@@ -9,9 +9,11 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     tcp, yamux, Multiaddr, PeerId, Transport, Swarm,
 };
+use serde_json::Value;
+use tokio::sync::mpsc::Receiver;
 use std::{time::Duration, path::Path, fs, error::Error, str::FromStr};
 
-use crate::entry::Entry;
+use crate::{entry::Entry, enums::data_value::DataRequests};
 
 // https://github.com/libp2p/rust-libp2p/blob/master/examples/ipfs-private/src/main.rs
 
@@ -189,9 +191,21 @@ impl P2P {
         // swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
     }
 
-    pub async fn loop_swarm(swarm: &mut Swarm<MyBehaviour>) {
+    pub async fn loop_swarm(swarm: &mut Swarm<MyBehaviour>, mut rx_p2p: Receiver<Value>) {
+        let gossipsub_topic = gossipsub::IdentTopic::new("chat");
         loop {
             tokio::select! {
+                Some(message) = rx_p2p.recv() => {
+                    // let request: DataRequests = serde_json::from_value(message).unwrap();
+                    // println!("{:?}", request);
+                    if let Err(e) = swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .publish(gossipsub_topic.clone(), serde_json::to_vec(&message).unwrap())
+                    {
+                        println!("Publish error: {e:?}");
+                    }
+                }
                 event = swarm.select_next_some() => {
                     match event {
                         SwarmEvent::NewListenAddr { address, .. } => {
@@ -353,13 +367,13 @@ impl P2P {
         // loop {
         //     tokio::select! {
         //         line = stdin.select_next_some() => {
-        //             if let Err(e) = swarm
-        //                 .behaviour_mut()
-        //                 .gossipsub
-        //                 .publish(gossipsub_topic.clone(), line.expect("Stdin not to close").as_bytes())
-        //             {
-        //                 println!("Publish error: {e:?}");
-        //             }
+                    // if let Err(e) = swarm
+                    //     .behaviour_mut()
+                    //     .gossipsub
+                    //     .publish(gossipsub_topic.clone(), line.expect("Stdin not to close").as_bytes())
+                    // {
+                    //     println!("Publish error: {e:?}");
+                    // }
         //         },
         //         event = swarm.select_next_some() => {
         //             match event {

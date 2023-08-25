@@ -25,22 +25,19 @@ const NOT_AUTH: &str = "Not authorised to perform this action";
 pub struct Entry {
     users: Arc<RwLock<HashMap<String, RwLock<User>>>>,
     tx_p2p: Sender<Value>,
-    rx_p2p: Receiver<Value>,
     tx_grpc: Sender<Value>,
-    rx_grpc: Receiver<Value>,
+    pub rx_grpc: Receiver<Value>,
 }
 
 impl Entry {
     pub fn new(
         tx_p2p: Sender<Value>,
-        rx_p2p: Receiver<Value>,
         tx_grpc: Sender<Value>,
         rx_grpc: Receiver<Value>,
     ) -> Self {
         Self {
             users: Arc::new(RwLock::new(HashMap::new())),
             tx_p2p,
-            rx_p2p,
             tx_grpc,
             rx_grpc,
         }
@@ -111,7 +108,7 @@ impl Entry {
         }
         let user = &mut user_option.unwrap().write().await;
         let wallet_response_result = user
-            .add_account(request.blockchain.into(), request.alias, &calling_user)
+            .add_account(request, &calling_user)
             .clone();
         if let Err(err) = wallet_response_result {
             let message = err.message.clone();
@@ -208,7 +205,7 @@ impl Entry {
             });
         }
         let read_user = user_option.unwrap().read().await;
-        let result = match data_request {
+        let result = match data_request.clone() {
             DataRequests::FirstName(request) => {
                 read_user
                     .user_details
@@ -230,6 +227,9 @@ impl Entry {
                     .propose(Some(request.name), &calling_user)
                     .await
             }
+            DataRequests::AddAccount(request) => {
+                read_user.propose_account(request, &calling_user)
+            }
         };
         if result.is_err() {
             Err(BecoError {
@@ -237,6 +237,9 @@ impl Entry {
                 status: Code::PermissionDenied,
             })
         } else {
+            println!("Sending message");
+            let result = self.tx_p2p.send(serde_json::to_value(&data_request).unwrap()).await;
+            println!("{:?}", result);
             Ok(read_user.as_public_user(&calling_user).into())
         }
     }
@@ -291,6 +294,9 @@ impl Entry {
                     .last_name
                     .update(Some(request.name), &calling_user)
                     .await
+            }
+            DataRequests::AddAccount(request) => {
+                write_user.add_account(request, &calling_user)
             }
         };
         if result.is_err() {

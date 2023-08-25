@@ -201,11 +201,11 @@ where
         Ok(())
     }
 
-    fn is_owner_or_editor(this: &Self, user: &PublicUser) -> bool {
+    pub fn is_owner_or_editor(this: &Self, user: &PublicUser) -> bool {
         user.id == this.owner_id || this.editors.iter().find(|&usr| usr == user).is_some()
     }
 
-    fn is_owner_or_viewer(this: &Self, user: &PublicUser) -> bool {
+    pub fn is_owner_or_viewer(this: &Self, user: &PublicUser) -> bool {
         user.id == this.owner_id || this.viewers.iter().find(|&usr| usr == user).is_some()
     }
 }
