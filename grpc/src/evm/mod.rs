@@ -1,5 +1,10 @@
-use crate::{traits::{value::Values, key::Key}, chain::chain_custody::ChainCustody, enums::cypto_algortihms::EVMAlgortithm, errors::key::CreateKeyError, response::WalletResponse, user::public_user::PublicUser};
-
+use crate::{
+    chain::chain_custody::{ChainCustody, PublicKey},
+    enums::cypto_algortihms::EVMAlgortithm,
+    errors::BecoError,
+    traits::{key::Key, value::Values},
+    user::public_user::PublicUser,
+};
 
 #[derive(Debug, Clone)]
 pub struct EVMKeyValues {
@@ -16,7 +21,10 @@ pub struct EVMKey {
 
 impl Values<EVMKeyValues> for EVMKey {
     fn values(&self) -> EVMKeyValues {
-        EVMKeyValues { public_key: self.public_key.clone(), alias: self.alias.clone() }
+        EVMKeyValues {
+            public_key: self.public_key.clone(),
+            alias: self.alias.clone(),
+        }
     }
 
     fn alias(&self) -> String {
@@ -32,16 +40,24 @@ impl Values<EVMKeyValues> for EVMKey {
     }
 }
 
+impl Into<PublicKey> for EVMKey {
+    fn into(self) -> PublicKey {
+        PublicKey {
+            alias: self.alias(),
+            address: self.public_key,
+        }
+    }
+}
+
 impl Key<EVMAlgortithm> for ChainCustody<EVMKey, EVMKeyValues> {
-    fn create(&mut self, algorithm: Option<EVMAlgortithm>, alias: String, public_user: &PublicUser) -> Result<WalletResponse, CreateKeyError> {
-        unimplemented!()
-    }
-
-    fn display(&self, public_user: &PublicUser) -> Vec<WalletResponse> {
+    fn create(
+        &mut self,
+        algorithm: Option<EVMAlgortithm>,
+        alias: String,
+        public_user: &PublicUser,
+    ) -> Result<(), BecoError> {
         unimplemented!()
     }
 }
 
-fn generate_key() {
-
-}
+fn generate_key() {}

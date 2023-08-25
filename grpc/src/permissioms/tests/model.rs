@@ -11,7 +11,7 @@ fn create_new_permission_model() {
     let key: String = "blah".into();
     let permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
     
     assert_eq!(permission_model.value(&calling_user).unwrap(), value);
 }
@@ -23,9 +23,9 @@ fn get_value_throw_err() {
     let key: String = "blah".into();
     let permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
     
-    assert_eq!(permission_model.value(&calling_user).unwrap_err().message, "User does not have permission to view this value");
+    assert_eq!(permission_model.value(&calling_user).unwrap_err().message, format!("User does not have permission to view this value: {key}"));
 }
 
 #[test]
@@ -36,8 +36,8 @@ fn add_viewer() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
-    let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_viewer(new_viewer.clone(), &calling_user);
     
@@ -53,8 +53,8 @@ fn add_viewer_no_permissions() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
-    let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_viewer(new_viewer.clone(), &calling_user);
     
@@ -68,7 +68,7 @@ fn add_viewer_owner() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_viewer(calling_user.clone(), &calling_user);
     
@@ -83,8 +83,8 @@ fn add_viewer_twice_err() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
-    let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_viewer(new_viewer.clone(), &calling_user);
     
@@ -103,13 +103,13 @@ fn add_viewer_cannot_mut() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
-    let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_viewer = PublicUser { id: viewer_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_viewer(new_viewer.clone(), &calling_user);
     
     assert!(result.is_ok());
-    assert_eq!(permission_model.value_mut(&new_viewer).unwrap_err().message, "User does not have permission to view this mut value");
+    assert_eq!(permission_model.value_mut(&new_viewer).unwrap_err().message, format!("User does not have permission to view this mut value: {key}"));
 }
 
 #[test]
@@ -120,8 +120,8 @@ fn add_editor() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
-    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_editor(new_editor.clone(), &calling_user);
     
@@ -137,8 +137,8 @@ fn add_editor_no_permissions() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
-    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_editor(new_editor.clone(), &calling_user);
     
@@ -154,9 +154,9 @@ fn add_editor_as_editor() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
-    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
-    let second_editor = PublicUser { id: second_editor_id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let second_editor = PublicUser { id: second_editor_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_editor(new_editor.clone(), &calling_user);
 
@@ -176,7 +176,7 @@ fn add_editor_owner() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_editor(calling_user.clone(), &calling_user);
     
@@ -191,8 +191,8 @@ fn add_editor_twice_err() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
-    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_editor(new_editor.clone(), &calling_user);
     
@@ -211,8 +211,8 @@ fn add_editor_can_mut() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
-    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_editor = PublicUser { id: editor_id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let result = permission_model.add_editor(new_editor.clone(), &calling_user);
     
@@ -227,7 +227,7 @@ fn get_value_mut() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
     
     assert_eq!(permission_model.value_mut(&calling_user).unwrap(), &mut value);
 }
@@ -239,9 +239,9 @@ fn remove_viewer() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
-    let new_editor = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
-    let new_viewer = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_editor = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_viewer = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let add_viewer_result = permission_model.add_viewer(new_viewer.clone(), &calling_user);
 
@@ -264,9 +264,9 @@ fn remove_editor() {
     let key: String = "blah".into();
     let mut permission_model = PermissionModel::new(id.to_string(), value.clone(), key.clone(), ValueReference::DETAIL_FIRST_NAME);
     
-    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None };
-    let new_editor = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
-    let new_viewer = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None };
+    let calling_user = PublicUser { id: id.to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_editor = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
+    let new_viewer = PublicUser { id: Uuid::new_v4().to_string(), first_name: None, other_names: None, last_name: None, chain_accounts: vec![] };
 
     let add_viewer_result = permission_model.add_viewer(new_viewer.clone(), &calling_user);
 

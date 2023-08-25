@@ -1,15 +1,5 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListAccountRequest {
-    #[prost(enumeration = "Blockchain", tag = "1")]
-    pub blockchain: i32,
-    #[prost(string, tag = "2")]
-    pub user_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub calling_user: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddAccountRequest {
     #[prost(enumeration = "Blockchain", tag = "1")]
     pub blockchain: i32,
@@ -30,13 +20,19 @@ pub struct ListAccountResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ChainResponse {
+    #[prost(enumeration = "Blockchain", tag = "1")]
+    pub chain: i32,
+    #[prost(message, repeated, tag = "2")]
+    pub keys: ::prost::alloc::vec::Vec<WalletResponse>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WalletResponse {
     #[prost(string, tag = "1")]
     pub alias: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub public_key: ::prost::alloc::string::String,
-    #[prost(string, optional, tag = "3")]
-    pub classic_address: ::core::option::Option<::prost::alloc::string::String>,
+    pub address: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -55,6 +51,8 @@ pub struct GetUserResponse {
     pub other_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "4")]
     pub last_name: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "5")]
+    pub chain_accounts: ::prost::alloc::vec::Vec<ChainResponse>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -374,32 +372,13 @@ pub mod beco_client {
             req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "UpdateLastName"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn list_account(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ListAccountRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ListAccountResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/beco.Beco/ListAccount");
-            let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "ListAccount"));
-            self.inner.unary(req, path, codec).await
-        }
         pub async fn add_account(
             &mut self,
             request: impl tonic::IntoRequest<super::AddAccountRequest>,
-        ) -> std::result::Result<tonic::Response<super::WalletResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::GetUserResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -455,17 +434,10 @@ pub mod beco_server {
             &self,
             request: tonic::Request<super::ModifyNameRequest>,
         ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
-        async fn list_account(
-            &self,
-            request: tonic::Request<super::ListAccountRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ListAccountResponse>,
-            tonic::Status,
-        >;
         async fn add_account(
             &self,
             request: tonic::Request<super::AddAccountRequest>,
-        ) -> std::result::Result<tonic::Response<super::WalletResponse>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct BecoServer<T: Beco> {
@@ -856,56 +828,12 @@ pub mod beco_server {
                     };
                     Box::pin(fut)
                 }
-                "/beco.Beco/ListAccount" => {
-                    #[allow(non_camel_case_types)]
-                    struct ListAccountSvc<T: Beco>(pub Arc<T>);
-                    impl<T: Beco> tonic::server::UnaryService<super::ListAccountRequest>
-                    for ListAccountSvc<T> {
-                        type Response = super::ListAccountResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ListAccountRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).list_account(request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = ListAccountSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/beco.Beco/AddAccount" => {
                     #[allow(non_camel_case_types)]
                     struct AddAccountSvc<T: Beco>(pub Arc<T>);
                     impl<T: Beco> tonic::server::UnaryService<super::AddAccountRequest>
                     for AddAccountSvc<T> {
-                        type Response = super::WalletResponse;
+                        type Response = super::GetUserResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

@@ -16,9 +16,14 @@ ecdsa = { version = "0.16.7" }
 k256 = { version = "0.13.1" }
 tonic = { version = "0.9.2" }
 prost = { version = "0.11.9" }
-tokio = { version = "1.29.1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1.4.1", features = ["v4"] }
 tonic-reflection = { version = "0.9.2" }
+libp2p = { version = "0.52.2", features = ["tcp", "mdns", "tokio", "identify", "gossipsub", "noise", "yamux", "ping", "pnet", "macros"] }
+regex = { version = "1.9.3" }
+either = { version = "1.9.0" }
+futures = { version = "0.3.28" }
+serde_json = { version = "1.0.105" }
 
 [build-dependencies]
 tonic-build = { version = "0.9.2" }

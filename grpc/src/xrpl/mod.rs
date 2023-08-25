@@ -1,5 +1,14 @@
-use crate::{traits::{key::Key, value::Values}, errors::key::CreateKeyError, chain::chain_custody::ChainCustody, response::WalletResponse, user::public_user::PublicUser};
-use xrpl::{core::keypairs::{generate_seed, derive_keypair, derive_classic_address}, constants::CryptoAlgorithm};
+use crate::{
+    chain::chain_custody::{ChainCustody, PublicKey},
+    errors::BecoError,
+    traits::{key::Key, value::Values},
+    user::public_user::PublicUser,
+};
+use tonic::Code;
+use xrpl::{
+    constants::CryptoAlgorithm,
+    core::keypairs::{derive_classic_address, derive_keypair, generate_seed},
+};
 
 #[derive(Debug, Clone)]
 pub struct XRPLKeyValues {
@@ -18,7 +27,13 @@ pub struct XRPLKey {
 }
 
 impl XRPLKey {
-    pub fn new(seed: String, public_key: String, private_key: String, classic_address: String, alias: String) -> Self {
+    pub fn new(
+        seed: String,
+        public_key: String,
+        private_key: String,
+        classic_address: String,
+        alias: String,
+    ) -> Self {
         Self {
             seed,
             public_key,
@@ -51,15 +66,35 @@ impl Values<XRPLKeyValues> for XRPLKey {
     }
 }
 
-impl Key<CryptoAlgorithm> for ChainCustody<XRPLKey, XRPLKeyValues>  {
-    fn create(&mut self, algorithm: Option<CryptoAlgorithm>, alias: String, public_user: &PublicUser) -> Result<WalletResponse, CreateKeyError> {
+impl Into<PublicKey> for XRPLKey {
+    fn into(self) -> PublicKey {
+        PublicKey {
+            alias: self.alias(),
+            address: self.classic_address,
+        }
+    }
+}
+
+impl Key<CryptoAlgorithm> for ChainCustody<XRPLKey, XRPLKeyValues> {
+    fn create(
+        &mut self,
+        algorithm: Option<CryptoAlgorithm>,
+        alias: String,
+        public_user: &PublicUser,
+    ) -> Result<(), BecoError> {
         let does_alias_exist = self.does_alias_exist(alias.clone(), public_user);
         if does_alias_exist {
-            return Err(CreateKeyError{ chain: self.chain.clone(), message: "Alias already exists".into() });
+            return Err(BecoError {
+                message: "Alias already exists".into(),
+                status: Code::AlreadyExists,
+            });
         }
         let seed_result = generate_seed(None, algorithm);
         if let Err(_error) = seed_result {
-            return Err(CreateKeyError{ chain: self.chain.clone(), message: "Error Generating seed".into() });
+            return Err(BecoError {
+                message: "Error Generating seed".into(),
+                status: Code::Unknown,
+            });
         }
         let seed = seed_result.unwrap();
         let (public_key, private_key) = derive_keypair(&seed, false).unwrap();
@@ -67,24 +102,13 @@ impl Key<CryptoAlgorithm> for ChainCustody<XRPLKey, XRPLKeyValues>  {
         let key = XRPLKey::new(seed, public_key, private_key, classic_address, alias);
         let keys_result = self.keys.value_mut(public_user);
         if keys_result.is_err() {
-            return Err(CreateKeyError{ chain: self.chain.clone(), message: "User does not have permission to create a new key".into() });
+            return Err(BecoError {
+                message: "User does not have permission to create a new key".into(),
+                status: Code::PermissionDenied,
+            });
         }
         let keys = keys_result.unwrap();
         keys.push(key.clone());
-        Ok(WalletResponse {
-            alias: key.alias(),
-            public_key: key.public_key(),
-            classic_address: key.classic_address(),
-        })
-    }
-
-    fn display(&self, public_user: &PublicUser) -> Vec<WalletResponse> {
-        self.keys.value(public_user).unwrap_or(vec![]).iter().map(|key| {
-            WalletResponse {
-                alias: key.alias(),
-                public_key: key.public_key(),
-                classic_address: key.classic_address(),
-            }
-        }).collect()
+        Ok(())
     }
 }

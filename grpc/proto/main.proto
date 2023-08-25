@@ -16,9 +16,7 @@ service Beco {
     rpc UpdateOtherNames(ModifyOtherNamesRequest) returns (GetUserResponse);
     rpc UpdateLastName(ModifyNameRequest) returns (GetUserResponse);
 
-
-    rpc ListAccount(ListAccountRequest) returns (ListAccountResponse);
-    rpc AddAccount(AddAccountRequest) returns (WalletResponse);
+    rpc AddAccount(AddAccountRequest) returns (GetUserResponse);
 }
 
 enum Blockchain {
@@ -29,12 +27,6 @@ enum Blockchain {
     EVM = 2 [
         (string_name) = "EVM"
     ];
-}
-
-message ListAccountRequest {
-    Blockchain blockchain = 1;
-    string user_id = 2;
-    string calling_user = 3;
 }
 
 message AddAccountRequest {
@@ -49,10 +41,14 @@ message ListAccountResponse {
     Blockchain blockchain = 2;
 }
 
+message ChainResponse {
+    Blockchain chain = 1;
+    repeated WalletResponse keys = 2;
+}
+
 message WalletResponse {
     string alias = 1;
-    string public_key = 2;
-    optional string classic_address = 3;
+    string address = 2;
 }
 
 message AddUserRequest {
@@ -64,6 +60,7 @@ message GetUserResponse {
     optional string first_name = 2;
     repeated string other_names = 3;
     optional string last_name = 4;
+    repeated ChainResponse chain_accounts = 5;
 }
 
 message ListUserRequest {
