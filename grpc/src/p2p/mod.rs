@@ -11,9 +11,9 @@ use libp2p::{
 };
 use serde_json::Value;
 use tokio::sync::mpsc::Receiver;
-use std::{time::Duration, path::Path, fs, error::Error, str::FromStr};
+use std::{time::Duration, path::Path, fs, error::Error, str::FromStr, env};
 
-use crate::{entry::Entry, enums::data_value::DataRequests};
+use crate::{entry::Entry, enums::data_value::{DataRequests, ProposeRequest, Status}};
 
 // https://github.com/libp2p/rust-libp2p/blob/master/examples/ipfs-private/src/main.rs
 
@@ -58,7 +58,7 @@ impl From<ping::Event> for MyBehaviourEvent {
 pub struct P2P {
     keys: identity::Keypair,
     peer_id: PeerId,
-    entry: &'static Entry,
+    // entry: &'static Entry,
 }
 
 impl P2P {
@@ -68,7 +68,7 @@ impl P2P {
         Self {
             keys,
             peer_id,
-            entry,
+            // entry,
         }
     }
 
@@ -191,8 +191,12 @@ impl P2P {
         // swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
     }
 
-    pub async fn loop_swarm(swarm: &mut Swarm<MyBehaviour>, mut rx_p2p: Receiver<Value>) {
+    pub async fn loop_swarm(swarm: &mut Swarm<MyBehaviour>, mut rx_p2p: Receiver<Value>, entry: &'static Entry) {
         let gossipsub_topic = gossipsub::IdentTopic::new("chat");
+        if let Ok(peer) = env::var("PEER") {
+            let addr = peer.parse::<Multiaddr>().unwrap();
+            let _ = swarm.dial(addr);
+        }
         loop {
             tokio::select! {
                 Some(message) = rx_p2p.recv() => {
@@ -211,6 +215,9 @@ impl P2P {
                         SwarmEvent::NewListenAddr { address, .. } => {
                             println!("Listening on {address:?}");
                         }
+                        SwarmEvent::IncomingConnection { local_addr, .. } => {
+                            println!("incoming connection: {local_addr:?}");
+                        }
                         SwarmEvent::Behaviour(MyBehaviourEvent::Identify(event)) => {
                             println!("identify: {event:?}");
                         }
@@ -224,7 +231,13 @@ impl P2P {
                                 String::from_utf8_lossy(&message.data),
                                 id,
                                 peer_id
-                            )
+                            );
+                            let propose_request: ProposeRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
+                            if propose_request.status == Status::PROPOSE {
+                                let request = propose_request.request;
+                                let response = entry.propose(request, propose_request.calling_user, propose_request.user_id, Status::CORROBORATE).await;
+                                println!("{response:?}");
+                            }                            
                         }
                         SwarmEvent::Behaviour(MyBehaviourEvent::Ping(event)) => {
                             match event {

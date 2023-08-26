@@ -22,6 +22,32 @@ pub enum DataValue {
 }
 
 #[derive(Debug, SerializeDerive, DeserializeDerive, Clone)]
+pub struct ProposeRequest {
+    pub signatures: Vec<String>,
+    pub status: Status,
+    pub request: DataRequests,
+    pub calling_user: String,
+    pub user_id: String,
+    pub hash: String,
+}
+
+#[derive(Debug, Clone, Display, EnumString, Eq, PartialEq, SerializeDerive, DeserializeDerive)]
+pub enum Status {
+    #[strum(serialize = "PROPOSE")]
+    PROPOSE,
+    #[strum(serialize = "CORROBORATE")]
+    CORROBORATE,
+    #[strum(serialize = "IGNORED")]
+    IGNORED,
+    #[strum(serialize = "INVALID")]
+    INVALID,
+    #[strum(serialize = "VALIDATED")]
+    VALIDATED,
+    #[strum(serialize = "FAILED")]
+    FAILED,
+}
+
+#[derive(Debug, SerializeDerive, DeserializeDerive, Clone)]
 pub enum DataRequests {
     FirstName(ModifyNameRequest),
     OtherNames(ModifyOtherNamesRequest),

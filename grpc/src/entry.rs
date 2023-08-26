@@ -8,7 +8,7 @@ use tokio::sync::{
 use tonic::Code;
 
 use crate::{
-    enums::data_value::DataRequests,
+    enums::data_value::{DataRequests, ProposeRequest, Status},
     errors::BecoError,
     proto::beco::{
         AddAccountRequest, AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse,
@@ -181,6 +181,7 @@ impl Entry {
         data_request: DataRequests,
         calling_user_id: String,
         user_id: String,
+        status: Status,
     ) -> Result<GetUserResponse, BecoError> {
         let users = &self.users.read().await;
         let calling_user = self
@@ -199,6 +200,16 @@ impl Entry {
             .await;
         let user_option = users.get(&user_id);
         if user_option.is_none() {
+            println!("Ignoring Corroboration");
+            let propose_request = ProposeRequest {
+                signatures: vec![],
+                status: Status::IGNORED,
+                request: data_request,
+                calling_user: calling_user_id,
+                user_id: user_id,
+                hash: "".into(),
+            };
+            let send_result = self.tx_p2p.send(serde_json::to_value(&propose_request).unwrap()).await;
             return Err(BecoError {
                 message: BAD_ACCOUNT.to_string(),
                 status: Code::NotFound,
@@ -231,14 +242,33 @@ impl Entry {
                 read_user.propose_account(request, &calling_user)
             }
         };
-        if result.is_err() {
-            Err(BecoError {
-                message: NOT_AUTH.to_string(),
-                status: Code::PermissionDenied,
-            })
+        if result.is_err() && status == Status::PROPOSE {
+            println!("{result:?} with status {status}");
+            Err(result.unwrap_err())
+        } else if result.is_err() && status == Status::CORROBORATE {
+            println!("Corroboration failed");
+            let propose_request = ProposeRequest {
+                signatures: vec!["Me2".into()],
+                status: Status::INVALID,
+                request: data_request,
+                calling_user: calling_user_id,
+                user_id: user_id,
+                hash: "".into(),
+            };
+            let send_result = self.tx_p2p.send(serde_json::to_value(&propose_request).unwrap()).await;
+            println!("{:?}", send_result);
+            Err(result.unwrap_err())
         } else {
             println!("Sending message");
-            let result = self.tx_p2p.send(serde_json::to_value(&data_request).unwrap()).await;
+            let propose_request = ProposeRequest {
+                signatures: vec!["Me".into()],
+                status,
+                request: data_request,
+                calling_user: calling_user_id,
+                user_id: user_id,
+                hash: "".into(),
+            };
+            let result = self.tx_p2p.send(serde_json::to_value(&propose_request).unwrap()).await;
             println!("{:?}", result);
             Ok(read_user.as_public_user(&calling_user).into())
         }
