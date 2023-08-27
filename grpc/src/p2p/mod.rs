@@ -2,7 +2,7 @@ use either::Either;
 use futures::prelude::*;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport, transport::upgrade::Version},
-    gossipsub, identify, identity,
+    gossipsub::{self}, identify, identity,
     multiaddr::Protocol,
     noise, ping,
     pnet::{PnetConfig, PreSharedKey},
@@ -11,64 +11,78 @@ use libp2p::{
 };
 use serde_json::Value;
 use tokio::sync::mpsc::Receiver;
-use std::{time::Duration, path::Path, fs, error::Error, str::FromStr, env};
+use std::{time::Duration, path::Path, fs, error::Error, str::FromStr, env, sync::Arc};
 
-use crate::{entry::Entry, enums::data_value::{DataRequests, ProposeRequest, Status}};
+use crate::{entry::Entry, enums::data_value::{ProcessRequest, DataRequestType}};
 
 // https://github.com/libp2p/rust-libp2p/blob/master/examples/ipfs-private/src/main.rs
 
 #[derive(NetworkBehaviour)]
-#[behaviour(to_swarm = "MyBehaviourEvent")]
-pub struct MyBehaviour {
+#[behaviour(to_swarm = "BecoBehaviourEvent")]
+pub struct BecoBehaviour {
     gossipsub: gossipsub::Behaviour,
     identify: identify::Behaviour,
     ping: ping::Behaviour,
 }
 
-impl MyBehaviour {
+impl BecoBehaviour {
     pub fn gossipsub(&self) -> &gossipsub::Behaviour {
         &self.gossipsub
     }
 }
 
-pub enum MyBehaviourEvent {
+pub enum BecoBehaviourEvent {
     Gossipsub(gossipsub::Event),
     Identify(identify::Event),
     Ping(ping::Event),
 }
 
-impl From<gossipsub::Event> for MyBehaviourEvent {
+impl From<gossipsub::Event> for BecoBehaviourEvent {
     fn from(event: gossipsub::Event) -> Self {
-        MyBehaviourEvent::Gossipsub(event)
+        BecoBehaviourEvent::Gossipsub(event)
     }
 }
 
-impl From<identify::Event> for MyBehaviourEvent {
+impl From<identify::Event> for BecoBehaviourEvent {
     fn from(event: identify::Event) -> Self {
-        MyBehaviourEvent::Identify(event)
+        BecoBehaviourEvent::Identify(event)
     }
 }
 
-impl From<ping::Event> for MyBehaviourEvent {
+impl From<ping::Event> for BecoBehaviourEvent {
     fn from(event: ping::Event) -> Self {
-        MyBehaviourEvent::Ping(event)
+        BecoBehaviourEvent::Ping(event)
     }
 }
 
 pub struct P2P {
     keys: identity::Keypair,
     peer_id: PeerId,
-    // entry: &'static Entry,
+    entry: &'static Arc<Entry>,
+    rx_p2p: Receiver<Value>,
+    propose_gossip_sub: gossipsub::IdentTopic,
+    corroborate_gossip_sub: gossipsub::IdentTopic,
+    validated_gossip_sub: gossipsub::IdentTopic,
+    load_user_gossip_sub: gossipsub::IdentTopic,
 }
 
 impl P2P {
-    pub fn new(entry: &'static Entry) -> Self {
+    pub fn new(entry: &'static Arc<Entry>, rx_p2p: Receiver<Value>) -> Self {
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
+        let propose_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::PROPOSE.to_string());
+        let corroborate_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::CORROBORATE.to_string());
+        let validated_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::VALIDATED.to_string());
+        let load_user_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::LOAD.to_string());
         Self {
             keys,
             peer_id,
-            // entry,
+            entry,
+            rx_p2p,
+            propose_gossip_sub,
+            corroborate_gossip_sub,
+            validated_gossip_sub,
+            load_user_gossip_sub,
         }
     }
 
@@ -128,7 +142,7 @@ impl P2P {
         Ok(res)
     }
 
-    pub async fn create_swarm(&self) -> Result<Swarm<MyBehaviour>, Box<dyn Error>> {
+    pub async fn create_swarm(&self) -> Result<Swarm<BecoBehaviour>, Box<dyn Error>> {
         // env_logger::init();
     
         // let ipfs_path = get_ipfs_path();
@@ -149,16 +163,13 @@ impl P2P {
         // Set up a an encrypted DNS-enabled TCP Transport over and Yamux protocol
         let transport = self.build_transport(local_key.clone(), psk);
     
-        // Create a Gosspipsub topic
-        let gossipsub_topic = gossipsub::IdentTopic::new("chat");
-    
         // We create a custom network behaviour that combines gossipsub, ping and identify.
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .max_transmit_size(262144)
                 .build()
                 .expect("valid config");
-        let mut behaviour = MyBehaviour {
+        let mut behaviour = BecoBehaviour {
             gossipsub: gossipsub::Behaviour::new(
                 gossipsub::MessageAuthenticity::Signed(local_key.clone()),
                 gossipsub_config,
@@ -170,12 +181,11 @@ impl P2P {
             )),
             ping: ping::Behaviour::new(ping::Config::new()),
         };
-    
-            println!("Subscribing to {gossipsub_topic:?}");
-            behaviour.gossipsub.subscribe(&gossipsub_topic).unwrap();
+
+        self.subscribe_to_topics(&mut behaviour);
     
         // Create a Swarm to manage peers and events
-        Ok(SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build())
+        let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
     
         // Reach out to other nodes if specified
         // for to_dial in std::env::args().skip(1) {
@@ -188,27 +198,67 @@ impl P2P {
         // let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
     
         // Listen on all interfaces and whatever port the OS assigns
-        // swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+        swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+        Ok(swarm)
     }
 
-    pub async fn loop_swarm(swarm: &mut Swarm<MyBehaviour>, mut rx_p2p: Receiver<Value>, entry: &'static Entry) {
-        let gossipsub_topic = gossipsub::IdentTopic::new("chat");
+    #[cfg(feature = "grpc")]
+    fn subscribe_to_topics(&self, behaviour: &mut BecoBehaviour) {
+        println!("Subscribing to {:?}", self.propose_gossip_sub);
+        behaviour.gossipsub.subscribe(&self.propose_gossip_sub).unwrap();
+        println!("Subscribing to {:?}", self.corroborate_gossip_sub);
+        behaviour.gossipsub.subscribe(&self.corroborate_gossip_sub).unwrap();
+        println!("Subscribing to {:?}", self.validated_gossip_sub);
+        behaviour.gossipsub.subscribe(&self.validated_gossip_sub).unwrap();
+        println!("Subscribing to {:?}", self.load_user_gossip_sub);
+        behaviour.gossipsub.subscribe(&self.load_user_gossip_sub).unwrap();
+    }
+
+    #[cfg(feature = "validator")]
+    fn subscribe_to_topics(&self, behaviour: &mut BecoBehaviour) {
+        println!("Subscribing to {:?}", self.propose_gossip_sub);
+        behaviour.gossipsub.subscribe(&self.propose_gossip_sub).unwrap();
+        println!("Subscribing to {:?}", self.corroborate_gossip_sub);
+        behaviour.gossipsub.subscribe(&self.corroborate_gossip_sub).unwrap();
+        println!("Subscribing to {:?}", self.validated_gossip_sub);
+        behaviour.gossipsub.subscribe(&self.validated_gossip_sub).unwrap();
+    }
+
+    #[cfg(feature = "orchestrator")]
+    fn subscribe_to_topics(&self, behaviour: &mut BecoBehaviour) {
+        println!("Subscribing to {:?}", self.validated_gossip_sub);
+        behaviour.gossipsub.subscribe(&self.validated_gossip_sub).unwrap();
+        println!("Subscribing to {:?}", self.load_user_gossip_sub);
+        behaviour.gossipsub.subscribe(&self.load_user_gossip_sub).unwrap();
+    }
+
+    pub async fn loop_swarm(&mut self) {
+        let mut swarm = self.create_swarm().await.unwrap();
         if let Ok(peer) = env::var("PEER") {
             let addr = peer.parse::<Multiaddr>().unwrap();
             let _ = swarm.dial(addr);
         }
         loop {
             tokio::select! {
-                Some(message) = rx_p2p.recv() => {
-                    // let request: DataRequests = serde_json::from_value(message).unwrap();
-                    // println!("{:?}", request);
+                Some(message) = self.rx_p2p.recv() => {
+                    let request: ProcessRequest = serde_json::from_value(message.clone()).unwrap();
+                    let gossip_sub = match request.status {
+                        DataRequestType::PROPOSE => { &self.propose_gossip_sub },
+                        DataRequestType::CORROBORATE => { &self.corroborate_gossip_sub },
+                        DataRequestType::IGNORED => { &self.corroborate_gossip_sub },
+                        DataRequestType::INVALID => { &self.corroborate_gossip_sub },
+                        DataRequestType::VALIDATED => { &self.validated_gossip_sub },
+                        DataRequestType::FAILED => { &self.validated_gossip_sub },
+                        DataRequestType::LOAD => { &self.load_user_gossip_sub },
+                    };
                     if let Err(e) = swarm
                         .behaviour_mut()
                         .gossipsub
-                        .publish(gossipsub_topic.clone(), serde_json::to_vec(&message).unwrap())
+                        .publish(gossip_sub.clone(), serde_json::to_vec(&message).unwrap())
                     {
                         println!("Publish error: {e:?}");
                     }
+                    println!("Mesage sent");
                 }
                 event = swarm.select_next_some() => {
                     match event {
@@ -218,10 +268,10 @@ impl P2P {
                         SwarmEvent::IncomingConnection { local_addr, .. } => {
                             println!("incoming connection: {local_addr:?}");
                         }
-                        SwarmEvent::Behaviour(MyBehaviourEvent::Identify(event)) => {
+                        SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(event)) => {
                             println!("identify: {event:?}");
                         }
-                        SwarmEvent::Behaviour(MyBehaviourEvent::Gossipsub(gossipsub::Event::Message {
+                        SwarmEvent::Behaviour(BecoBehaviourEvent::Gossipsub(gossipsub::Event::Message {
                             propagation_source: peer_id,
                             message_id: id,
                             message,
@@ -232,14 +282,30 @@ impl P2P {
                                 id,
                                 peer_id
                             );
-                            let propose_request: ProposeRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
-                            if propose_request.status == Status::PROPOSE {
-                                let request = propose_request.request;
-                                let response = entry.propose(request, propose_request.calling_user, propose_request.user_id, Status::CORROBORATE).await;
-                                println!("{response:?}");
-                            }                            
+                            let propose_request: ProcessRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
+                            match propose_request.status {
+                                DataRequestType::PROPOSE => {
+                                    let request = propose_request.request;
+                                    let response = self.entry.propose(request, propose_request.calling_user, propose_request.user_id, DataRequestType::CORROBORATE, propose_request.hash).await;
+                                    println!("{response:?}");
+                                },
+                                DataRequestType::VALIDATED => {
+                                    let request = propose_request.request;
+                                    let response = self.entry.update(request, propose_request.calling_user, propose_request.user_id, propose_request.hash).await;
+                                    println!("{response:?}");
+                                    if response.is_ok() {
+                                        self.entry.success_event(propose_request.hash).await;
+                                        self.entry.ping_event(&propose_request.hash).await;
+                                    }
+                                },
+                                DataRequestType::FAILED => {
+                                    self.entry.fail_event(propose_request.hash).await;
+                                    self.entry.ping_event(&propose_request.hash).await;
+                                },
+                                _ => {},
+                            };                          
                         }
-                        SwarmEvent::Behaviour(MyBehaviourEvent::Ping(event)) => {
+                        SwarmEvent::Behaviour(BecoBehaviourEvent::Ping(event)) => {
                             match event {
                                 ping::Event {
                                     peer,
@@ -308,34 +374,34 @@ impl P2P {
     
     //     // We create a custom network behaviour that combines gossipsub, ping and identify.
     //     #[derive(NetworkBehaviour)]
-    //     #[behaviour(to_swarm = "MyBehaviourEvent")]
-    //     struct MyBehaviour {
+    //     #[behaviour(to_swarm = "BecoBehaviourEvent")]
+    //     struct BecoBehaviour {
     //         gossipsub: gossipsub::Behaviour,
     //         identify: identify::Behaviour,
     //         ping: ping::Behaviour,
     //     }
     
-    //     enum MyBehaviourEvent {
+    //     enum BecoBehaviourEvent {
     //         Gossipsub(gossipsub::Event),
     //         Identify(identify::Event),
     //         Ping(ping::Event),
     //     }
     
-    //     impl From<gossipsub::Event> for MyBehaviourEvent {
+    //     impl From<gossipsub::Event> for BecoBehaviourEvent {
     //         fn from(event: gossipsub::Event) -> Self {
-    //             MyBehaviourEvent::Gossipsub(event)
+    //             BecoBehaviourEvent::Gossipsub(event)
     //         }
     //     }
     
-    //     impl From<identify::Event> for MyBehaviourEvent {
+    //     impl From<identify::Event> for BecoBehaviourEvent {
     //         fn from(event: identify::Event) -> Self {
-    //             MyBehaviourEvent::Identify(event)
+    //             BecoBehaviourEvent::Identify(event)
     //         }
     //     }
     
-    //     impl From<ping::Event> for MyBehaviourEvent {
+    //     impl From<ping::Event> for BecoBehaviourEvent {
     //         fn from(event: ping::Event) -> Self {
-    //             MyBehaviourEvent::Ping(event)
+    //             BecoBehaviourEvent::Ping(event)
     //         }
     //     }
     
@@ -345,7 +411,7 @@ impl P2P {
     //             .max_transmit_size(262144)
     //             .build()
     //             .expect("valid config");
-    //         let mut behaviour = MyBehaviour {
+    //         let mut behaviour = BecoBehaviour {
     //             gossipsub: gossipsub::Behaviour::new(
     //                 gossipsub::MessageAuthenticity::Signed(local_key.clone()),
     //                 gossipsub_config,
@@ -393,10 +459,10 @@ impl P2P {
         //                 SwarmEvent::NewListenAddr { address, .. } => {
         //                     println!("Listening on {address:?}");
         //                 }
-        //                 SwarmEvent::Behaviour(MyBehaviourEvent::Identify(event)) => {
+        //                 SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(event)) => {
         //                     println!("identify: {event:?}");
         //                 }
-        //                 SwarmEvent::Behaviour(MyBehaviourEvent::Gossipsub(gossipsub::Event::Message {
+        //                 SwarmEvent::Behaviour(BecoBehaviourEvent::Gossipsub(gossipsub::Event::Message {
         //                     propagation_source: peer_id,
         //                     message_id: id,
         //                     message,
@@ -408,7 +474,7 @@ impl P2P {
         //                         peer_id
         //                     )
         //                 }
-        //                 SwarmEvent::Behaviour(MyBehaviourEvent::Ping(event)) => {
+        //                 SwarmEvent::Behaviour(BecoBehaviourEvent::Ping(event)) => {
         //                     match event {
         //                         ping::Event {
         //                             peer,

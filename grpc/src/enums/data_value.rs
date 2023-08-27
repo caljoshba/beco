@@ -4,6 +4,7 @@ use serde::{
     Deserialize as DeserializeDerive, Serialize as SerializeDerive,
 };
 use strum::{Display, EnumString};
+use std::hash::Hash;
 
 use crate::proto::beco::{AddAccountRequest, ModifyNameRequest, ModifyOtherNamesRequest};
 
@@ -22,17 +23,17 @@ pub enum DataValue {
 }
 
 #[derive(Debug, SerializeDerive, DeserializeDerive, Clone)]
-pub struct ProposeRequest {
+pub struct ProcessRequest {
     pub signatures: Vec<String>,
-    pub status: Status,
+    pub status: DataRequestType,
     pub request: DataRequests,
     pub calling_user: String,
     pub user_id: String,
-    pub hash: String,
+    pub hash: u64,
 }
 
 #[derive(Debug, Clone, Display, EnumString, Eq, PartialEq, SerializeDerive, DeserializeDerive)]
-pub enum Status {
+pub enum DataRequestType {
     #[strum(serialize = "PROPOSE")]
     PROPOSE,
     #[strum(serialize = "CORROBORATE")]
@@ -45,6 +46,8 @@ pub enum Status {
     VALIDATED,
     #[strum(serialize = "FAILED")]
     FAILED,
+    #[strum(serialize = "LOAD")]
+    LOAD,
 }
 
 #[derive(Debug, SerializeDerive, DeserializeDerive, Clone)]
@@ -55,6 +58,16 @@ pub enum DataRequests {
     AddAccount(AddAccountRequest),
     // AddLinkedUser(ModifyLinkedUserRequest),
     // RemoveLinkedUser(ModifyLinkedUserRequest),
+}
+
+// ModifyNameRequest
+
+impl Hash for ModifyNameRequest {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.calling_user.hash(state);
+        self.user_id.hash(state);
+        self.name.hash(state);
+    }
 }
 
 impl Serialize for ModifyNameRequest {
@@ -158,6 +171,16 @@ impl<'de> Deserialize<'de> for ModifyNameRequest {
     }
 }
 
+// ModifyOtherNamesRequest
+
+impl Hash for ModifyOtherNamesRequest {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.calling_user.hash(state);
+        self.user_id.hash(state);
+        self.other_names.hash(state);
+    }
+}
+
 impl Serialize for ModifyOtherNamesRequest {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -257,6 +280,17 @@ impl<'de> Deserialize<'de> for ModifyOtherNamesRequest {
             }
         }
         deserializer.deserialize_struct("ModifyOtherNamesRequest", FIELDS, RequestVisitor)
+    }
+}
+
+// AddAccountRequest
+
+impl Hash for AddAccountRequest {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.blockchain.hash(state);
+        self.alias.hash(state);
+        self.user_id.hash(state);
+        self.calling_user.hash(state);
     }
 }
 
