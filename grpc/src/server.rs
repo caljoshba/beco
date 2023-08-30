@@ -3,13 +3,12 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 use crate::entry::Entry;
-use crate::enums::data_value::{DataRequests, DataRequestType};
+use crate::enums::data_value::DataRequests;
 use crate::proto::beco::beco_server::Beco;
 use crate::proto::beco::{
     AddAccountRequest, ModifyLinkedUserRequest, ModifyNameRequest, ModifyOtherNamesRequest,
 };
 use crate::proto::beco::{AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse};
-use crate::utils::calculate_hash;
 
 #[derive(Debug)]
 pub struct BecoImplementation {
@@ -47,19 +46,14 @@ impl Beco for BecoImplementation {
         request: Request<AddAccountRequest>,
     ) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
-        let hash = calculate_hash(&inner_request);
-        self.entry.create_event(hash.clone()).await;
         let result = self
             .entry
             .propose(
                 DataRequests::AddAccount(inner_request.clone()),
                 inner_request.calling_user.clone(),
                 inner_request.user_id.clone(),
-                DataRequestType::PROPOSE,
-                hash,
             )
             .await;
-        self.entry.remove_event(&hash).await;
         if let Err(err) = result {
             return Err(Status::new(err.status, err.message));
         }
@@ -71,19 +65,14 @@ impl Beco for BecoImplementation {
         request: Request<ModifyNameRequest>,
     ) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
-        let hash = calculate_hash(&inner_request);
-        self.entry.create_event(hash.clone()).await;
         let result = self
             .entry
             .propose(
                 DataRequests::FirstName(inner_request.clone()),
                 inner_request.calling_user.clone(),
                 inner_request.user_id.clone(),
-                DataRequestType::PROPOSE,
-                hash,
             )
             .await;
-        self.entry.remove_event(&hash).await;
         if let Err(err) = result {
             return Err(Status::new(err.status, err.message));
         }
@@ -95,19 +84,14 @@ impl Beco for BecoImplementation {
         request: Request<ModifyOtherNamesRequest>,
     ) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
-        let hash = calculate_hash(&inner_request);
-        self.entry.create_event(hash.clone()).await;
         let result = self
             .entry
             .propose(
                 DataRequests::OtherNames(inner_request.clone()),
                 inner_request.calling_user.clone(),
                 inner_request.user_id.clone(),
-                DataRequestType::PROPOSE,
-                hash,
             )
             .await;
-        self.entry.remove_event(&hash).await;
         if let Err(err) = result {
             return Err(Status::new(err.status, err.message));
         }
@@ -119,19 +103,14 @@ impl Beco for BecoImplementation {
         request: Request<ModifyNameRequest>,
     ) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
-        let hash = calculate_hash(&inner_request);
-        self.entry.create_event(hash.clone()).await;
         let result = self
             .entry
             .propose(
                 DataRequests::LastName(inner_request.clone()),
                 inner_request.calling_user.clone(),
                 inner_request.user_id.clone(),
-                DataRequestType::PROPOSE,
-                hash,
             )
             .await;
-        self.entry.remove_event(&hash).await;
         if let Err(err) = result {
             return Err(Status::new(err.status, err.message));
         }

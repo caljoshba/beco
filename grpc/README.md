@@ -12,5 +12,6 @@ https://grpc.io/docs/protoc-installation/
 https://konghq.com/blog/engineering/building-grpc-apis-with-rust
 https://protobuf.dev/programming-guides/proto3/#enum-value-options
 
-cargo run --release --bin server
-PEER=/ip4/127.0.0.1/tcp/38743 PORT=other cargo run --release --bin server
+cargo run --release --bin server --features="grpc"
+PEER=/ip4/127.0.0.1/tcp/38743 PORT=other cargo run --release --bin server --features="grpc"
+PEER=/ip4/127.0.0.1/tcp/38743 PORT=other cargo run --release --bin validator --features="validator"

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::{HashMap, HashSet}, sync::Arc, time::Duration};
 
 use event_listener::Event;
 // use event_listener::Event;
@@ -16,7 +16,7 @@ use crate::{
         AddAccountRequest, AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse,
         ModifyLinkedUserRequest,
     },
-    user::{public_user::PublicUser, user::User}, utils::ProposeEvent,
+    user::{public_user::PublicUser, user::User}, utils::{ProposeEvent, calculate_hash},
 };
 
 const BAD_BLOCKCHAIN: &str = "Invalid Blockchain value provided";
@@ -177,7 +177,9 @@ impl Entry {
     }
 
     pub async fn ping_event(&self, hash: &u64) {
+        println!("\n\n\nTrying to ping event");
         if let Some(event) = self.events.read().await.get(hash) {
+            println!("\n\n\nPinging event");
             event.notify(1);
         }
     }
@@ -200,56 +202,16 @@ impl Entry {
     }
 
     pub async fn success_event(&self, hash: u64) {
+        println!("\n\n\nTrying to update event");
         if let Some(event) = self.event_listeners.write().await.get_mut(&hash) {
+            println!("\n\n\nUpdating event");
             event.update(DataRequestType::VALIDATED);
         }
     }
 
-    pub async fn propose(
-        &self,
-        data_request: DataRequests,
-        calling_user_id: String,
-        user_id: String,
-        status: DataRequestType,
-        hash: u64,
-    ) -> Result<GetUserResponse, BecoError> {
-        let users = &self.users.read().await;
-        let calling_user = self
-            .get_public_user(
-                &users.get(&calling_user_id),
-                calling_user_id.clone(),
-                calling_user_id.clone(),
-            )
-            .await;
-        let user = self
-            .get_public_user(
-                &users.get(&user_id),
-                user_id.clone(),
-                calling_user_id.clone(),
-            )
-            .await;
-        let user_option = users.get(&user_id);
-        if user_option.is_none() {
-            let propose_request = ProcessRequest {
-                signatures: vec![],
-                status: DataRequestType::VALIDATED,
-                request: data_request,
-                calling_user: calling_user_id,
-                user_id: user_id,
-                hash: hash,
-            };
-            let send_result = self
-                .tx_p2p
-                .send(serde_json::to_value(&propose_request).unwrap())
-                .await;
-            return Err(BecoError {
-                message: BAD_ACCOUNT.to_string(),
-                status: Code::NotFound,
-            });
-        }
-        let result = {
-            let read_user = user_option.unwrap().read().await;
-            match data_request.clone() {
+    async fn propose_value(&self, user_option: &Option<&RwLock<User>>, request: DataRequests, calling_user: &PublicUser) -> Result<(), BecoError> {
+        let read_user = user_option.unwrap().read().await;
+            match request {
                 DataRequests::FirstName(request) => {
                     read_user
                         .user_details
@@ -273,67 +235,61 @@ impl Entry {
                 }
                 DataRequests::AddAccount(request) => read_user.propose_account(request, &calling_user),
             }
-        };
-        
-        if result.is_err() && status == DataRequestType::PROPOSE {
-            Err(result.unwrap_err())
-        } else if result.is_err() && status == DataRequestType::CORROBORATE {
-            let propose_request = ProcessRequest {
-                signatures: vec!["Me2".into()],
-                status: DataRequestType::INVALID,
-                request: data_request,
-                calling_user: calling_user_id,
-                user_id: user_id,
-                hash: hash,
-            };
+    }
+
+    // async fn send_process_request(&self, corroborate_signatures: HashSet<String>, ignore_signatures: HashSet<String>, status: DataRequestType,)
+    pub async fn corroborate(&self, request: &mut ProcessRequest) {
+        let users = &self.users.read().await;
+        let calling_user = self
+            .get_public_user(
+                &users.get(&request.calling_user),
+                request.calling_user.clone(),
+                request.calling_user.clone(),
+            )
+            .await;
+        let user = self
+            .get_public_user(
+                &users.get(&request.user_id),
+                request.user_id.clone(),
+                request.calling_user.clone(),
+            )
+            .await;
+        let user_option = users.get(&request.user_id);
+        if user_option.is_none() {
+            request.ignore_signatures.insert("Hi".into());
+            request.status = DataRequestType::IGNORED;
             let send_result = self
                 .tx_p2p
-                .send(serde_json::to_value(&propose_request).unwrap())
+                .send(serde_json::to_value(&request).unwrap())
                 .await;
-            Err(result.unwrap_err())
-        } else {
-            let propose_request = ProcessRequest {
-                signatures: vec!["Me".into()],
-                status,
-                request: data_request,
-                calling_user: calling_user_id,
-                user_id: user_id,
-                hash: hash,
-            };
-            let result = self
+            return;
+        }
+        let result = self.propose_value(&user_option, request.request.clone(), &calling_user).await;
+        
+        if result.is_err() {
+            request.failed_signatures.insert("Hi2".into());
+            request.status = DataRequestType::INVALID;
+            let send_result = self
                 .tx_p2p
-                .send(serde_json::to_value(&propose_request).unwrap())
+                .send(serde_json::to_value(&request).unwrap())
                 .await;
-            if let Some(event) = self.events.read().await.get(&hash) {
-                event.listen().await;
-            }
-            let event_listeners = self.event_listeners.read().await;
-            let event_option = event_listeners.get(&hash);
-            
-            let success = if let Some(event) = event_option {
-                let result = event.await;
-                result == DataRequestType::VALIDATED
-            } else { false };
-            
-            if success {
-                Ok(user_option.unwrap().read().await.as_public_user(&calling_user).into())
-            } else {
-                Err(BecoError {
-                    message: "Failed to validate the request within 3 seconds".into(),
-                    status: Code::DeadlineExceeded,
-                })
-            }
+        } else {
+            request.validated_signatures.insert("Hi2".into());
+            request.status = DataRequestType::VALID;
+            let send_result = self
+                .tx_p2p
+                .send(serde_json::to_value(&request).unwrap())
+                .await;
         }
     }
 
-    pub async fn update(
+    pub async fn propose(
         &self,
         data_request: DataRequests,
         calling_user_id: String,
         user_id: String,
-        hash: u64,
     ) -> Result<GetUserResponse, BecoError> {
-        let users = self.users.read().await;
+        let users = &self.users.read().await;
         let calling_user = self
             .get_public_user(
                 &users.get(&calling_user_id),
@@ -355,7 +311,93 @@ impl Entry {
                 status: Code::NotFound,
             });
         }
+        let result = self.propose_value(&user_option, data_request.clone(), &calling_user).await;
+        
+        if result.is_err() {
+            Err(result.unwrap_err())
+        } else {
+            let hash = calculate_hash(&data_request);
+            self.create_event(hash.clone()).await;
+
+            let mut signatures: HashSet<String> = HashSet::new();
+            signatures.insert("Me".into());
+            let propose_request = ProcessRequest {
+                validated_signatures: signatures,
+                failed_signatures: HashSet::new(),
+                ignore_signatures: HashSet::new(),
+                status: DataRequestType::PROPOSE,
+                request: data_request,
+                calling_user: calling_user_id,
+                user_id: user_id,
+                hash: hash,
+                datetime: None,
+                connected_peers: 0,
+            };
+
+            let _ = self
+                .tx_p2p
+                .send(serde_json::to_value(&propose_request).unwrap())
+                .await;
+            
+            let success = {
+                if let Some(event) = self.events.read().await.get(&hash) {
+                    event.listen().await;
+                }
+                let event_listeners = self.event_listeners.read().await;
+                let event_option = event_listeners.get(&hash);
+                
+                if let Some(event) = event_option {
+                    let result = event.await;
+                    result == DataRequestType::VALIDATED
+                } else { false }
+            };            
+            
+            self.remove_event(&hash).await;
+
+            if success {
+                Ok(user_option.unwrap().read().await.as_public_user(&calling_user).into())
+            } else {
+                Err(BecoError {
+                    message: "Failed to validate the request within 3 seconds".into(),
+                    status: Code::DeadlineExceeded,
+                })
+            }
+        }
+    }
+
+    pub async fn update(
+        &self,
+        data_request: DataRequests,
+        calling_user_id: String,
+        user_id: String,
+    ) -> Result<GetUserResponse, BecoError> {
+        println!("updating {data_request:?}");
+        let users = self.users.read().await;
+        println!("\n\n\n\nCan read users");
+        let calling_user = self
+            .get_public_user(
+                &users.get(&calling_user_id),
+                calling_user_id.clone(),
+                calling_user_id.clone(),
+            )
+            .await;
+        let user = self
+            .get_public_user(
+                &users.get(&user_id),
+                user_id.clone(),
+                calling_user_id.clone(),
+            )
+            .await;
+        let user_option = users.get(&user_id);
+        if user_option.is_none() {
+            return Err(BecoError {
+                message: BAD_ACCOUNT.to_string(),
+                status: Code::NotFound,
+            });
+        }
+        println!("\n\n\n\nGetting write user");
         let write_user = &mut user_option.unwrap().write().await;
+        println!("\n\n\n\nGot write user");
         let result = match data_request {
             DataRequests::FirstName(request) => {
                 write_user

@@ -7,6 +7,7 @@ mod entry;
 mod enums;
 mod errors;
 mod evm;
+mod implement;
 mod p2p;
 mod permissioms;
 mod proto;
@@ -50,6 +51,7 @@ async fn get_entry(
         .await
 }
 
+#[cfg(feature = "grpc")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // https://tokio.rs/tokio/tutorial/channels
@@ -83,6 +85,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Serving grpc and p2p");
     let _ret = join(p2p_server, grpc_server).await;
+
+    Ok(())
+}
+
+#[cfg(feature = "validator")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    
+    P2P::new().loop_swarm().await;
 
     Ok(())
 }

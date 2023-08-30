@@ -2,5 +2,27 @@
     "rust-analyzer.linkedProjects": [
         "./grpc/Cargo.toml",
         "./user-dns/Cargo.toml"
-    ]
+    ],
+    "rust-analyzer.cargo.cfgs": {
+        "grpc": true
+        // "validator": true
+        // "orchestrator": true
+    },
+    "rust-analyzer.cargo.features": [
+        "grpc"
+        // "validator"
+        // "orchestrator"
+    ],
+    "rust-analyzer.check.features": [
+        "grpc"
+        // "validator"
+        // "orchestrator"
+    ],
+    "rust-analyzer.diagnostics.disabled": [
+        "unresolved-proc-macro"
+    ],
+    "rust-analyzer.cargo.unsetTest": [
+        "core"
+    ],
+    "rust-analyzer.check.allTargets": false
 }
