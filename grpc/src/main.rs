@@ -63,11 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             P2P::new(entry, rx_p2p).loop_swarm().await;
         });
     };
-    let port = if env::var("PORT").unwrap_or("default".to_string()) == "default".to_string() {
-        9001
-    } else {
-        9002
-    };
+
+    let port: u16 = env::var("PORT").unwrap_or("9001".to_string()).parse::<u16>().unwrap();
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
     let grpc_server = async move {
         let wallet = BecoImplementation::new(entry.clone());
