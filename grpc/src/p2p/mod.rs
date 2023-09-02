@@ -1,6 +1,15 @@
+mod behaviour;
+
+#[cfg(not(feature = "rendezvous"))]
+use crate::{
+    entry::Entry,
+    enums::data_value::{DataRequestType, ProcessRequest},
+    p2p::behaviour::{BecoBehaviour, BecoBehaviourEvent},
+    utils::{calculate_hash, ProposeEvent},
+};
 use chrono::prelude::*;
 use either::Either;
-use futures::prelude::*;
+use futures::{future::Lazy, prelude::*};
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport, transport::upgrade::Version},
     gossipsub::{self, MessageId, PublishError},
@@ -9,7 +18,7 @@ use libp2p::{
     noise, ping,
     pnet::{PnetConfig, PreSharedKey},
     rendezvous,
-    swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
+    swarm::{keep_alive, NetworkBehaviour, SwarmBuilder, SwarmEvent},
     tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
 };
 use serde_json::Value;
@@ -17,61 +26,24 @@ use std::{
     collections::HashMap, env, error::Error, fs, path::Path, str::FromStr, sync::Arc,
     time::Duration,
 };
-use tokio::sync::{mpsc::Receiver, RwLock, RwLockWriteGuard};
+use tokio::sync::{mpsc::Receiver, OnceCell, RwLock, RwLockWriteGuard};
 
+#[cfg(feature = "rendezvous")]
 use crate::{
     entry::Entry,
     enums::data_value::{DataRequestType, ProcessRequest},
+    p2p::behaviour::{RendezvousServerBehaviour, RendezvousServerBehaviourEvent},
     utils::{calculate_hash, ProposeEvent},
 };
 
 // https://github.com/libp2p/rust-libp2p/blob/master/examples/ipfs-private/src/main.rs
-
-#[derive(NetworkBehaviour)]
-#[behaviour(to_swarm = "BecoBehaviourEvent")]
-pub struct BecoBehaviour {
-    gossipsub: gossipsub::Behaviour,
-    identify: identify::Behaviour,
-    ping: ping::Behaviour,
-    rendezvous: rendezvous::server::Behaviour,
+static RENDEZVOUS_POINT_ADDRESS: OnceCell<Multiaddr> = OnceCell::const_new();
+async fn rendezvous_address() -> &'static Multiaddr {
+    RENDEZVOUS_POINT_ADDRESS
+        .get_or_init(|| async { "/ip4/127.0.0.1/tcp/62649".parse::<Multiaddr>().unwrap() })
+        .await
 }
-
-impl BecoBehaviour {
-    pub fn gossipsub(&self) -> &gossipsub::Behaviour {
-        &self.gossipsub
-    }
-}
-
-pub enum BecoBehaviourEvent {
-    Gossipsub(gossipsub::Event),
-    Identify(identify::Event),
-    Ping(ping::Event),
-    Rendezvous(rendezvous::server::Event),
-}
-
-impl From<gossipsub::Event> for BecoBehaviourEvent {
-    fn from(event: gossipsub::Event) -> Self {
-        BecoBehaviourEvent::Gossipsub(event)
-    }
-}
-
-impl From<identify::Event> for BecoBehaviourEvent {
-    fn from(event: identify::Event) -> Self {
-        BecoBehaviourEvent::Identify(event)
-    }
-}
-
-impl From<ping::Event> for BecoBehaviourEvent {
-    fn from(event: ping::Event) -> Self {
-        BecoBehaviourEvent::Ping(event)
-    }
-}
-
-impl From<rendezvous::server::Event> for BecoBehaviourEvent {
-    fn from(event: rendezvous::server::Event) -> Self {
-        BecoBehaviourEvent::Rendezvous(event)
-    }
-}
+const NAMESPACE: &str = "rendezvous";
 
 #[cfg(feature = "grpc")]
 pub struct P2P {
@@ -102,6 +74,12 @@ pub struct P2P {
     peer_id: PeerId,
     validated_gossip_sub: gossipsub::IdentTopic,
     load_user_gossip_sub: gossipsub::IdentTopic,
+}
+
+#[cfg(feature = "rendezvous")]
+pub struct P2P {
+    keys: identity::Keypair,
+    peer_id: PeerId,
 }
 
 impl P2P {
@@ -145,6 +123,13 @@ impl P2P {
             proposals_processing: RwLock::new(HashMap::new()),
             proposal_queues: RwLock::new(HashMap::new()),
         }
+    }
+
+    #[cfg(feature = "rendezvous")]
+    pub fn new() -> Self {
+        let keys = identity::Keypair::generate_ed25519();
+        let peer_id = PeerId::from(keys.public());
+        Self { keys, peer_id }
     }
 
     pub fn build_transport(
@@ -203,10 +188,8 @@ impl P2P {
         Ok(res)
     }
 
-    pub async fn create_swarm(&self) -> Result<Swarm<BecoBehaviour>, Box<dyn Error>> {
-        // env_logger::init();
-
-        // let ipfs_path = get_ipfs_path();
+    #[cfg(feature = "rendezvous")]
+    pub async fn create_swarm(&self) -> Result<Swarm<RendezvousServerBehaviour>, Box<dyn Error>> {
         let ipfs_path = Path::new("");
         // println!("using IPFS_PATH {ipfs_path:?}");
         let psk: Option<PreSharedKey> = self
@@ -215,41 +198,30 @@ impl P2P {
             .transpose()?;
 
         // Create a random PeerId
-        let local_key = identity::Keypair::generate_ed25519();
-        let local_peer_id = PeerId::from(local_key.public());
-        println!("using random peer id: {local_peer_id:?}");
         if let Some(psk) = psk {
             println!("using swarm key with fingerprint: {}", psk.fingerprint());
         }
 
         // Set up a an encrypted DNS-enabled TCP Transport over and Yamux protocol
-        let transport = self.build_transport(local_key.clone(), psk);
+        let transport = self.build_transport(self.keys.clone(), psk);
 
-        // We create a custom network behaviour that combines gossipsub, ping and identify.
-
-        let gossipsub_config = gossipsub::ConfigBuilder::default()
-            .max_transmit_size(262144)
-            .build()
-            .expect("valid config");
-        let mut behaviour = BecoBehaviour {
-            gossipsub: gossipsub::Behaviour::new(
-                gossipsub::MessageAuthenticity::Signed(local_key.clone()),
-                gossipsub_config,
-            )
-            .expect("Valid configuration"),
+        let mut behaviour = RendezvousServerBehaviour {
             identify: identify::Behaviour::new(identify::Config::new(
                 "/ipfs/0.1.0".into(),
-                local_key.public(),
+                self.keys.public(),
             )),
             ping: ping::Behaviour::new(ping::Config::new()),
             rendezvous: rendezvous::server::Behaviour::new(rendezvous::server::Config::default()),
+            keep_alive: keep_alive::Behaviour,
         };
-
-        self.subscribe_to_topics(&mut behaviour);
 
         // Create a Swarm to manage peers and events
         let mut swarm =
-            SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
+            SwarmBuilder::with_tokio_executor(transport, behaviour, self.peer_id).build();
+
+        swarm.listen_on(rendezvous_address().await.clone())?;
+        println!("Peer ID: {:?}", self.peer_id);
+        // swarm.dial(rendezvous_address().await.clone())?;
 
         // Reach out to other nodes if specified
         // for to_dial in std::env::args().skip(1) {
@@ -261,8 +233,70 @@ impl P2P {
         // Read full lines from stdin
         // let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
 
-        // Listen on all interfaces and whatever port the OS assigns
-        swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+        Ok(swarm)
+    }
+
+    #[cfg(any(feature = "grpc", feature = "validator", feature = "orhcestrator"))]
+    pub async fn create_swarm(&self) -> Result<Swarm<BecoBehaviour>, Box<dyn Error>> {
+        // env_logger::init();
+
+        // let ipfs_path = get_ipfs_path();
+        let ipfs_path = Path::new("");
+        // println!("using IPFS_PATH {ipfs_path:?}");
+        let psk: Option<PreSharedKey> = self
+            .get_psk(&ipfs_path)?
+            .map(|text| PreSharedKey::from_str(&text))
+            .transpose()?;
+
+        if let Some(psk) = psk {
+            println!("using swarm key with fingerprint: {}", psk.fingerprint());
+        }
+
+        // Set up a an encrypted DNS-enabled TCP Transport over and Yamux protocol
+        let transport = self.build_transport(self.keys.clone(), psk);
+
+        // We create a custom network behaviour that combines gossipsub, ping and identify.
+
+        let gossipsub_config = gossipsub::ConfigBuilder::default()
+            .max_transmit_size(262144)
+            .build()
+            .expect("valid config");
+        let mut behaviour = BecoBehaviour {
+            gossipsub: gossipsub::Behaviour::new(
+                gossipsub::MessageAuthenticity::Signed(self.keys.clone()),
+                gossipsub_config,
+            )
+            .expect("Valid configuration"),
+            identify: identify::Behaviour::new(identify::Config::new(
+                "/ipfs/0.1.0".into(),
+                self.keys.public(),
+            )),
+            ping: ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(30))),
+            rendezvous: rendezvous::client::Behaviour::new(self.keys.clone()),
+            keep_alive: keep_alive::Behaviour,
+        };
+
+        self.subscribe_to_topics(&mut behaviour);
+
+        // Create a Swarm to manage peers and events
+        let mut swarm =
+            SwarmBuilder::with_tokio_executor(transport, behaviour, self.peer_id).build();
+        let port = env::var("P2P").unwrap_or("7000".into()).parse::<i32>().unwrap();
+        let addr = format!("/ip4/0.0.0.0/tcp/{port}").parse::<Multiaddr>().unwrap();
+        swarm.listen_on(addr.clone())?;
+        swarm.add_external_address(format!("/ip4/127.0.0.1/tcp/{port}").parse::<Multiaddr>().unwrap());
+        swarm.dial(rendezvous_address().await.clone())?;
+
+        // Reach out to other nodes if specified
+        // for to_dial in std::env::args().skip(1) {
+        //     let addr: Multiaddr = self.parse_legacy_multiaddr(&to_dial)?;
+        //     swarm.dial(addr)?;
+        //     println!("Dialed {to_dial:?}")
+        // }
+
+        // Read full lines from stdin
+        // let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
+
         Ok(swarm)
     }
 
@@ -326,12 +360,19 @@ impl P2P {
     #[cfg(feature = "grpc")]
     pub async fn loop_swarm(&mut self) {
         let mut swarm = self.create_swarm().await.unwrap();
-        if let Ok(peer) = env::var("PEER") {
-            let addr = peer.parse::<Multiaddr>().unwrap();
-            let _ = swarm.dial(addr);
-        }
+        // Listen on all interfaces and whatever port the OS assigns
+        // if let Ok(peer) = env::var("PEER") {
+        //     let addr = peer.parse::<Multiaddr>().unwrap();
+        //     let _ = swarm.dial(addr);
+        // }
+        let mut discover_tick = tokio::time::interval(Duration::from_secs(30));
+        let mut cookie = None;
+        let rendezous_peer_id = "12D3KooWCxV8czTueJYfzFsuJcjQPe6R3ZxJZdgcYeZYZS9Drqtw"
+            .parse()
+            .unwrap();
         loop {
             tokio::select! {
+                // need another mechanism to go through and cleanup hanging requests
                 Some(message) = self.rx_p2p.recv() => {
                     let request: ProcessRequest = serde_json::from_value(message.clone()).unwrap();
                     let gossip_sub = match request.status {
@@ -353,6 +394,16 @@ impl P2P {
                     }
                     println!("Mesage sent with status: {}", request.status);
                 }
+                _ = discover_tick.tick() => {
+                    if cookie.is_some() {
+                        swarm.behaviour_mut().rendezvous.discover(
+                            Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                            cookie.clone(),
+                            None,
+                            rendezous_peer_id
+                            )
+                    }
+                }
                 event = swarm.select_next_some() => {
                     match event {
                         SwarmEvent::NewListenAddr { address, .. } => {
@@ -361,8 +412,21 @@ impl P2P {
                         SwarmEvent::IncomingConnection { local_addr, .. } => {
                             println!("incoming connection: {local_addr:?}");
                         }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(event)) => {
-                            println!("identify: {event:?}");
+                        // SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(event)) => {
+                        //     println!("identify: {event:?}");
+                        // }
+                        SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(identify::Event::Received {
+                            ..
+                        })) => {
+                            if let Err(error) = swarm.behaviour_mut().rendezvous.register(
+                                rendezvous::Namespace::from_static(NAMESPACE),
+                                rendezous_peer_id.clone(),
+                                None,
+                            ) {
+                                println!("Failed to register: {error}");
+                                return;
+                            }
+                            println!("Connected");
                         }
                         SwarmEvent::Behaviour(BecoBehaviourEvent::Gossipsub(gossipsub::Event::Message {
                             propagation_source: peer_id,
@@ -435,29 +499,92 @@ impl P2P {
                                 }
                             }
                         }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
-                            rendezvous::server::Event::PeerRegistered { peer, registration },
-                        )) => {
+                        SwarmEvent::ConnectionEstablished { peer_id, .. } if peer_id == rendezous_peer_id => {
                             println!(
-                                "Peer {} registered for namespace '{}'",
-                                peer,
-                                registration.namespace
+                                "Connected to rendezvous point, discovering nodes in '{}' namespace ...",
+                                NAMESPACE
+                            );
+
+                            swarm.behaviour_mut().rendezvous.discover(
+                                Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                                None,
+                                None,
+                                rendezous_peer_id,
                             );
                         }
+                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(rendezvous::client::Event::Discovered {
+                            registrations,
+                            cookie: new_cookie,
+                            ..
+                        })) => {
+                            cookie.replace(new_cookie);
+
+                            for registration in registrations {
+                                for address in registration.record.addresses() {
+                                    let peer = registration.record.peer_id();
+                                    println!("Discovered peer {} at {}", peer, address);
+
+                                    let p2p_suffix = Protocol::P2p(peer);
+                                    let address_with_p2p =
+                                        if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
+                                            address.clone().with(p2p_suffix)
+                                        } else {
+                                            address.clone()
+                                        };
+
+                                    swarm.dial(address_with_p2p).unwrap();
+                                }
+                            }
+                        }
                         SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
-                            rendezvous::server::Event::DiscoverServed {
-                                enquirer,
-                                registrations,
+                            rendezvous::client::Event::Registered {
+                                namespace,
+                                ttl,
+                                rendezvous_node,
                             },
                         )) => {
                             println!(
-                                "Served peer {} with {} registrations",
-                                enquirer,
-                                registrations.len()
+                                "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
+                                namespace,
+                                rendezvous_node,
+                                ttl
+                            );
+                        }
+                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
+                            rendezvous::client::Event::RegisterFailed {
+                                rendezvous_node,
+                                namespace,
+                                error,
+                            },
+                        )) => {
+                            println!(
+                                "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
+                                rendezvous_node,
+                                namespace,
+                                error
                             );
                         }
                         _ => {}
                     }
+                    // _ = discover_tick.tick() => if cookie.is_some() {
+                    //         swarm.behaviour_mut().rendezvous.discover(
+                    //             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                    //             cookie.clone(),
+                    //             None,
+                    //             rendezvous_point
+                    //             )
+                    //         } else {}
+
+                    // _ = discover_tick.tick() => {
+                    //     if cookie.is_some() {
+                    //         swarm.behaviour_mut().rendezvous.discover(
+                    //             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                    //             cookie.clone(),
+                    //             None,
+                    //             rendezvous_point
+                    //             )
+                    //     }
+                    // }
                 }
             }
         }
@@ -466,12 +593,27 @@ impl P2P {
     #[cfg(feature = "validator")]
     pub async fn loop_swarm(&mut self) {
         let mut swarm = self.create_swarm().await.unwrap();
-        if let Ok(peer) = env::var("PEER") {
-            let addr = peer.parse::<Multiaddr>().unwrap();
-            let _ = swarm.dial(addr);
-        }
+        // if let Ok(peer) = env::var("PEER") {
+        //     let addr = peer.parse::<Multiaddr>().unwrap();
+        //     let _ = swarm.dial(addr);
+        // }
+        let mut discover_tick = tokio::time::interval(Duration::from_secs(30));
+        let mut cookie = None;
+        let rendezous_peer_id = "12D3KooWCxV8czTueJYfzFsuJcjQPe6R3ZxJZdgcYeZYZS9Drqtw"
+            .parse()
+            .unwrap();
         loop {
             tokio::select! {
+                _ = discover_tick.tick() => {
+                    if cookie.is_some() {
+                        swarm.behaviour_mut().rendezvous.discover(
+                            Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                            cookie.clone(),
+                            None,
+                            rendezous_peer_id
+                            )
+                    }
+                }
                 // need a mechanism to routeinly go around and check the queues process the next one if somethign went wrong
                 event = swarm.select_next_some() => {
                     match event {
@@ -481,8 +623,21 @@ impl P2P {
                         SwarmEvent::IncomingConnection { local_addr, .. } => {
                             println!("incoming connection: {local_addr:?}");
                         }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(event)) => {
-                            println!("identify: {event:?}");
+                        // SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(event)) => {
+                        //     println!("identify: {event:?}");
+                        // }
+                        SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(identify::Event::Received {
+                            ..
+                        })) => {
+                            if let Err(error) = swarm.behaviour_mut().rendezvous.register(
+                                rendezvous::Namespace::from_static(NAMESPACE),
+                                rendezous_peer_id.clone(),
+                                None,
+                            ) {
+                                println!("Failed to register: {error}");
+                                return;
+                            }
+                            println!("Connected");
                         }
                         SwarmEvent::Behaviour(BecoBehaviourEvent::Gossipsub(gossipsub::Event::Message {
                             propagation_source: peer_id,
@@ -627,7 +782,92 @@ impl P2P {
                                 }
                             }
                         }
+                        SwarmEvent::ConnectionEstablished { peer_id, .. } if peer_id == rendezous_peer_id => {
+                            println!(
+                                "Connected to rendezvous point, discovering nodes in '{}' namespace ...",
+                                NAMESPACE
+                            );
+
+                            swarm.behaviour_mut().rendezvous.discover(
+                                Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                                None,
+                                None,
+                                rendezous_peer_id,
+                            );
+                        }
+                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(rendezvous::client::Event::Discovered {
+                            registrations,
+                            cookie: new_cookie,
+                            ..
+                        })) => {
+                            cookie.replace(new_cookie);
+
+                            for registration in registrations {
+                                for address in registration.record.addresses() {
+                                    let peer = registration.record.peer_id();
+                                    println!("Discovered peer {} at {}", peer, address);
+
+                                    let p2p_suffix = Protocol::P2p(peer);
+                                    let address_with_p2p =
+                                        if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
+                                            address.clone().with(p2p_suffix)
+                                        } else {
+                                            address.clone()
+                                        };
+
+                                    swarm.dial(address_with_p2p).unwrap();
+                                }
+                            }
+                        }
                         SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
+                            rendezvous::client::Event::Registered {
+                                namespace,
+                                ttl,
+                                rendezvous_node,
+                            },
+                        )) => {
+                            println!(
+                                "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
+                                namespace,
+                                rendezvous_node,
+                                ttl
+                            );
+                        }
+                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
+                            rendezvous::client::Event::RegisterFailed {
+                                rendezvous_node,
+                                namespace,
+                                error,
+                            },
+                        )) => {
+                            println!(
+                                "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
+                                rendezvous_node,
+                                namespace,
+                                error
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "rendezvous")]
+    pub async fn loop_swarm(&mut self) {
+        let mut swarm = self.create_swarm().await.unwrap();
+        loop {
+            tokio::select! {
+                event = swarm.select_next_some() => {
+                    match event {
+                        SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                            println!("Connected to {}", peer_id);
+                        }
+                        SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                            println!("Disconnected from {}", peer_id);
+                        }
+                        SwarmEvent::Behaviour(RendezvousServerBehaviourEvent::Rendezvous(
                             rendezvous::server::Event::PeerRegistered { peer, registration },
                         )) => {
                             println!(
@@ -636,7 +876,7 @@ impl P2P {
                                 registration.namespace
                             );
                         }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
+                        SwarmEvent::Behaviour(RendezvousServerBehaviourEvent::Rendezvous(
                             rendezvous::server::Event::DiscoverServed {
                                 enquirer,
                                 registrations,
@@ -648,11 +888,14 @@ impl P2P {
                                 registrations.len()
                             );
                         }
-                        _ => {}
+                        other => {
+                            println!("Unhandled {:?}", other);
+                        }
                     }
                 }
             }
         }
+        // unimplemented!()
     }
 
     #[cfg(feature = "validator")]

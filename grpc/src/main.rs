@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "validator")]
+#[cfg(any(feature = "validator", feature ="rendezvous"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
