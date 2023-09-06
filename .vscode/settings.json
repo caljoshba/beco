@@ -1,22 +1,25 @@
 {
     "rust-analyzer.linkedProjects": [
         "./grpc/Cargo.toml",
-        "./user-dns/Cargo.toml"
+        // "./user-dns/Cargo.toml"
     ],
     "rust-analyzer.cargo.cfgs": {
         "grpc": true
         // "validator": true
         // "orchestrator": true
+        // "rendezvous": true
     },
     "rust-analyzer.cargo.features": [
         "grpc"
         // "validator"
         // "orchestrator"
+        // "rendezvous"
     ],
     "rust-analyzer.check.features": [
         "grpc"
         // "validator"
         // "orchestrator"
+        // "rendezvous"
     ],
     "rust-analyzer.diagnostics.disabled": [
         "unresolved-proc-macro"

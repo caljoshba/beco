@@ -533,7 +533,9 @@ pub mod beco_server {
                             request: tonic::Request<super::ListUserRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).list_user(request).await };
+                            let fut = async move {
+                                <T as Beco>::list_user(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -575,7 +577,9 @@ pub mod beco_server {
                             request: tonic::Request<super::AddUserRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).add_user(request).await };
+                            let fut = async move {
+                                <T as Beco>::add_user(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -620,7 +624,7 @@ pub mod beco_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).add_linked_user(request).await
+                                <T as Beco>::add_linked_user(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -666,7 +670,7 @@ pub mod beco_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).remove_linked_user(request).await
+                                <T as Beco>::remove_linked_user(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -710,7 +714,7 @@ pub mod beco_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).update_first_name(request).await
+                                <T as Beco>::update_first_name(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -756,7 +760,7 @@ pub mod beco_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).update_other_names(request).await
+                                <T as Beco>::update_other_names(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -800,7 +804,7 @@ pub mod beco_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).update_last_name(request).await
+                                <T as Beco>::update_last_name(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -843,7 +847,9 @@ pub mod beco_server {
                             request: tonic::Request<super::AddAccountRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).add_account(request).await };
+                            let fut = async move {
+                                <T as Beco>::add_account(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }

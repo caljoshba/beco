@@ -29,8 +29,9 @@ pub struct Entry {
     tx_p2p: Sender<Value>,
     tx_grpc: Sender<Value>,
     pub rx_grpc: Receiver<Value>,
-    pub event_listeners: RwLock<HashMap<u64, ProposeEvent>>,
+    pub completion_loops: RwLock<HashMap<u64, ProposeEvent>>,
     pub events: RwLock<HashMap<u64, Event>>,
+    // add a timeout queue that the p2p side can check - just an Instant::now() thing rather than a future so it can be checked multiple times
 }
 
 impl Entry {
@@ -40,7 +41,7 @@ impl Entry {
             tx_p2p,
             tx_grpc,
             rx_grpc,
-            event_listeners: RwLock::new(HashMap::new()),
+            completion_loops: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
         }
     }
@@ -186,25 +187,23 @@ impl Entry {
 
     pub async fn create_event(&self, hash: u64) {
         let event = ProposeEvent::new(DataRequestType::PROPOSE, Duration::from_secs(5));
-        self.event_listeners.write().await.insert(hash, event);
+        self.completion_loops.write().await.insert(hash, event);
         self.events.write().await.insert(hash, Event::new());
     }
 
     pub async fn remove_event(&self, hash: &u64) {
-        self.event_listeners.write().await.remove(hash);
+        self.completion_loops.write().await.remove(hash);
         self.events.write().await.remove(&hash);
     }
 
     pub async fn fail_event(&self, hash: u64) {
-        if let Some(event) = self.event_listeners.write().await.get_mut(&hash) {
+        if let Some(event) = self.completion_loops.write().await.get_mut(&hash) {
             event.update(DataRequestType::FAILED);
         }        
     }
 
     pub async fn success_event(&self, hash: u64) {
-        println!("\n\n\nTrying to update event");
-        if let Some(event) = self.event_listeners.write().await.get_mut(&hash) {
-            println!("\n\n\nUpdating event");
+        if let Some(event) = self.completion_loops.write().await.get_mut(&hash) {
             event.update(DataRequestType::VALIDATED);
         }
     }
@@ -317,7 +316,9 @@ impl Entry {
             Err(result.unwrap_err())
         } else {
             let hash = calculate_hash(&data_request);
-            self.create_event(hash.clone()).await;
+            {
+                self.create_event(hash.clone()).await;
+            }            
 
             let mut signatures: HashSet<String> = HashSet::new();
             signatures.insert("Me".into());
@@ -333,32 +334,32 @@ impl Entry {
                 datetime: None,
                 connected_peers: 0,
             };
-
             let _ = self
                 .tx_p2p
                 .send(serde_json::to_value(&propose_request).unwrap())
                 .await;
-            
             let success = {
                 if let Some(event) = self.events.read().await.get(&hash) {
                     event.listen().await;
                 }
-                let event_listeners = self.event_listeners.read().await;
-                let event_option = event_listeners.get(&hash);
+                let completion_loops = self.completion_loops.read().await;
+                let completion_option = completion_loops.get(&hash);
                 
-                if let Some(event) = event_option {
-                    let result = event.await;
+                if let Some(completion) = completion_option {
+                    let result = completion.await;
                     result == DataRequestType::VALIDATED
                 } else { false }
             };            
             
-            self.remove_event(&hash).await;
+            {
+                self.remove_event(&hash).await;
+            }
 
             if success {
                 Ok(user_option.unwrap().read().await.as_public_user(&calling_user).into())
             } else {
                 Err(BecoError {
-                    message: "Failed to validate the request within 3 seconds".into(),
+                    message: "Failed to validate the request within 5 seconds".into(),
                     status: Code::DeadlineExceeded,
                 })
             }
@@ -395,9 +396,7 @@ impl Entry {
                 status: Code::NotFound,
             });
         }
-        println!("\n\n\n\nGetting write user");
         let write_user = &mut user_option.unwrap().write().await;
-        println!("\n\n\n\nGot write user");
         let result = match data_request {
             DataRequests::FirstName(request) => {
                 write_user

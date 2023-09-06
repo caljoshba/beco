@@ -18,7 +18,7 @@ use libp2p::{
     noise, ping,
     pnet::{PnetConfig, PreSharedKey},
     rendezvous,
-    swarm::{keep_alive, NetworkBehaviour, SwarmBuilder, SwarmEvent},
+    swarm::{keep_alive, NetworkBehaviour, SwarmBuilder, SwarmEvent, THandlerErr},
     tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
 };
 use serde_json::Value;
@@ -45,6 +45,17 @@ async fn rendezvous_address() -> &'static Multiaddr {
 }
 const NAMESPACE: &str = "rendezvous";
 
+static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
+async fn rendezvous_peer_id() -> &'static PeerId {
+    RENDEZVOUS_PEER_ID
+        .get_or_init(|| async {
+            "12D3KooWD4VopJw8ZYno1GQYP7sWr8eTVoCne6iidUQ5iMes5aYb"
+                .parse()
+                .unwrap()
+        })
+        .await
+}
+
 #[cfg(feature = "grpc")]
 pub struct P2P {
     keys: identity::Keypair,
@@ -64,6 +75,7 @@ pub struct P2P {
     propose_gossip_sub: gossipsub::IdentTopic,
     corroborate_gossip_sub: gossipsub::IdentTopic,
     validated_gossip_sub: gossipsub::IdentTopic,
+    // need to add an expiration datetime to each of these
     proposals_processing: RwLock<HashMap<String, ProcessRequest>>,
     proposal_queues: RwLock<HashMap<String, RwLock<Vec<ProcessRequest>>>>,
 }
@@ -205,7 +217,7 @@ impl P2P {
         // Set up a an encrypted DNS-enabled TCP Transport over and Yamux protocol
         let transport = self.build_transport(self.keys.clone(), psk);
 
-        let mut behaviour = RendezvousServerBehaviour {
+        let behaviour = RendezvousServerBehaviour {
             identify: identify::Behaviour::new(identify::Config::new(
                 "/ipfs/0.1.0".into(),
                 self.keys.public(),
@@ -221,22 +233,55 @@ impl P2P {
 
         swarm.listen_on(rendezvous_address().await.clone())?;
         println!("Peer ID: {:?}", self.peer_id);
-        // swarm.dial(rendezvous_address().await.clone())?;
-
-        // Reach out to other nodes if specified
-        // for to_dial in std::env::args().skip(1) {
-        //     let addr: Multiaddr = self.parse_legacy_multiaddr(&to_dial)?;
-        //     swarm.dial(addr)?;
-        //     println!("Dialed {to_dial:?}")
-        // }
-
-        // Read full lines from stdin
-        // let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
 
         Ok(swarm)
     }
 
-    #[cfg(any(feature = "grpc", feature = "validator", feature = "orhcestrator"))]
+    #[cfg(feature = "rendezvous")]
+    pub async fn loop_swarm(&mut self) {
+        let mut swarm = self.create_swarm().await.unwrap();
+        loop {
+            tokio::select! {
+                // need to cleanup registrations when a connection closes
+                event = swarm.select_next_some() => {
+                    match event {
+                        SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                            println!("Connected to {}", peer_id);
+                        }
+                        SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                            println!("Disconnected from {}", peer_id);
+                        }
+                        SwarmEvent::Behaviour(RendezvousServerBehaviourEvent::Rendezvous(
+                            rendezvous::server::Event::PeerRegistered { peer, registration },
+                        )) => {
+                            println!(
+                                "Peer {} registered for namespace '{}'",
+                                peer,
+                                registration.namespace
+                            );
+                        }
+                        SwarmEvent::Behaviour(RendezvousServerBehaviourEvent::Rendezvous(
+                            rendezvous::server::Event::DiscoverServed {
+                                enquirer,
+                                registrations,
+                            },
+                        )) => {
+                            println!(
+                                "Served peer {} with {} registrations",
+                                enquirer,
+                                registrations.len()
+                            );
+                        }
+                        other => {
+                            println!("Unhandled {:?}", other);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
     pub async fn create_swarm(&self) -> Result<Swarm<BecoBehaviour>, Box<dyn Error>> {
         // env_logger::init();
 
@@ -281,21 +326,20 @@ impl P2P {
         // Create a Swarm to manage peers and events
         let mut swarm =
             SwarmBuilder::with_tokio_executor(transport, behaviour, self.peer_id).build();
-        let port = env::var("P2P").unwrap_or("7000".into()).parse::<i32>().unwrap();
-        let addr = format!("/ip4/0.0.0.0/tcp/{port}").parse::<Multiaddr>().unwrap();
+        let port = env::var("P2P")
+            .unwrap_or("7000".into())
+            .parse::<i32>()
+            .unwrap();
+        let addr = format!("/ip4/0.0.0.0/tcp/{port}")
+            .parse::<Multiaddr>()
+            .unwrap();
         swarm.listen_on(addr.clone())?;
-        swarm.add_external_address(format!("/ip4/127.0.0.1/tcp/{port}").parse::<Multiaddr>().unwrap());
+        swarm.add_external_address(
+            format!("/ip4/127.0.0.1/tcp/{port}")
+                .parse::<Multiaddr>()
+                .unwrap(),
+        );
         swarm.dial(rendezvous_address().await.clone())?;
-
-        // Reach out to other nodes if specified
-        // for to_dial in std::env::args().skip(1) {
-        //     let addr: Multiaddr = self.parse_legacy_multiaddr(&to_dial)?;
-        //     swarm.dial(addr)?;
-        //     println!("Dialed {to_dial:?}")
-        // }
-
-        // Read full lines from stdin
-        // let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
 
         Ok(swarm)
     }
@@ -360,20 +404,12 @@ impl P2P {
     #[cfg(feature = "grpc")]
     pub async fn loop_swarm(&mut self) {
         let mut swarm = self.create_swarm().await.unwrap();
-        // Listen on all interfaces and whatever port the OS assigns
-        // if let Ok(peer) = env::var("PEER") {
-        //     let addr = peer.parse::<Multiaddr>().unwrap();
-        //     let _ = swarm.dial(addr);
-        // }
         let mut discover_tick = tokio::time::interval(Duration::from_secs(30));
         let mut cookie = None;
-        let rendezous_peer_id = "12D3KooWCxV8czTueJYfzFsuJcjQPe6R3ZxJZdgcYeZYZS9Drqtw"
-            .parse()
-            .unwrap();
         loop {
             tokio::select! {
-                // need another mechanism to go through and cleanup hanging requests
                 Some(message) = self.rx_p2p.recv() => {
+                    println!("Got message to send");
                     let request: ProcessRequest = serde_json::from_value(message.clone()).unwrap();
                     let gossip_sub = match request.status {
                         DataRequestType::PROPOSE => { &self.propose_gossip_sub },
@@ -381,6 +417,7 @@ impl P2P {
                         DataRequestType::IGNORED => { &self.corroborate_gossip_sub },
                         DataRequestType::INVALID => { &self.corroborate_gossip_sub },
                         DataRequestType::VALID => { &self.corroborate_gossip_sub },
+                        DataRequestType::NOTFOUND => { &self.corroborate_gossip_sub },
                         DataRequestType::VALIDATED => { &self.validated_gossip_sub },
                         DataRequestType::FAILED => { &self.validated_gossip_sub },
                         DataRequestType::LOAD => { &self.load_user_gossip_sub },
@@ -395,213 +432,32 @@ impl P2P {
                     println!("Mesage sent with status: {}", request.status);
                 }
                 _ = discover_tick.tick() => {
+                    // println!("ticking");
                     if cookie.is_some() {
                         swarm.behaviour_mut().rendezvous.discover(
                             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
                             cookie.clone(),
                             None,
-                            rendezous_peer_id
-                            )
+                            rendezvous_peer_id().await.clone()
+                        );
                     }
+                    // println!("finished ticking");
                 }
+                // need a mechanism to routinely go around and check the queues process the next one if something went wrong
                 event = swarm.select_next_some() => {
-                    match event {
-                        SwarmEvent::NewListenAddr { address, .. } => {
-                            println!("Listening on {address:?}");
-                        }
-                        SwarmEvent::IncomingConnection { local_addr, .. } => {
-                            println!("incoming connection: {local_addr:?}");
-                        }
-                        // SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(event)) => {
-                        //     println!("identify: {event:?}");
-                        // }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(identify::Event::Received {
-                            ..
-                        })) => {
-                            if let Err(error) = swarm.behaviour_mut().rendezvous.register(
-                                rendezvous::Namespace::from_static(NAMESPACE),
-                                rendezous_peer_id.clone(),
-                                None,
-                            ) {
-                                println!("Failed to register: {error}");
-                                return;
-                            }
-                            println!("Connected");
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Gossipsub(gossipsub::Event::Message {
-                            propagation_source: peer_id,
-                            message_id: id,
-                            message,
-                        })) => {
-                            println!(
-                                "Got message: {} with id: {} from peer: {:?}",
-                                String::from_utf8_lossy(&message.data),
-                                id,
-                                peer_id
-                            );
-                            let mut propose_request: ProcessRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
-                            match propose_request.status {
-                                DataRequestType::CORROBORATE => {
-                                    let response = self.entry.corroborate(&mut propose_request).await;
-                                    println!("{response:?}");
-                                },
-                                DataRequestType::VALIDATED => {
-                                    println!("\n\n\n\n\nGot new validated message");
-                                    let hash = calculate_hash(&propose_request.request);
-                                    let response = self.entry.update(propose_request.request, propose_request.calling_user, propose_request.user_id).await;
-                                    println!("{response:?}");
-                                    if response.is_ok() {
-                                        self.entry.success_event(hash).await;
-                                        self.entry.ping_event(&hash).await;
-                                    }
-                                },
-                                DataRequestType::FAILED => {
-                                    let hash = calculate_hash(&propose_request.request);
-                                    self.entry.fail_event(hash).await;
-                                    self.entry.ping_event(&hash).await;
-                                },
-                                _ => {},
-                            };
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Ping(event)) => {
-                            match event {
-                                ping::Event {
-                                    peer,
-                                    result: Result::Ok(rtt),
-                                    ..
-                                } => {
-                                    println!(
-                                        "ping: rtt to {} is {} ms",
-                                        peer.to_base58(),
-                                        rtt.as_millis()
-                                    );
-                                }
-                                ping::Event {
-                                    peer,
-                                    result: Result::Err(ping::Failure::Timeout),
-                                    ..
-                                } => {
-                                    println!("ping: timeout to {}", peer.to_base58());
-                                }
-                                ping::Event {
-                                    peer,
-                                    result: Result::Err(ping::Failure::Unsupported),
-                                    ..
-                                } => {
-                                    println!("ping: {} does not support ping protocol", peer.to_base58());
-                                }
-                                ping::Event {
-                                    peer,
-                                    result: Result::Err(ping::Failure::Other { error }),
-                                    ..
-                                } => {
-                                    println!("ping: ping::Failure with {}: {error}", peer.to_base58());
-                                }
-                            }
-                        }
-                        SwarmEvent::ConnectionEstablished { peer_id, .. } if peer_id == rendezous_peer_id => {
-                            println!(
-                                "Connected to rendezvous point, discovering nodes in '{}' namespace ...",
-                                NAMESPACE
-                            );
-
-                            swarm.behaviour_mut().rendezvous.discover(
-                                Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                                None,
-                                None,
-                                rendezous_peer_id,
-                            );
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(rendezvous::client::Event::Discovered {
-                            registrations,
-                            cookie: new_cookie,
-                            ..
-                        })) => {
-                            cookie.replace(new_cookie);
-
-                            for registration in registrations {
-                                for address in registration.record.addresses() {
-                                    let peer = registration.record.peer_id();
-                                    println!("Discovered peer {} at {}", peer, address);
-
-                                    let p2p_suffix = Protocol::P2p(peer);
-                                    let address_with_p2p =
-                                        if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
-                                            address.clone().with(p2p_suffix)
-                                        } else {
-                                            address.clone()
-                                        };
-
-                                    swarm.dial(address_with_p2p).unwrap();
-                                }
-                            }
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
-                            rendezvous::client::Event::Registered {
-                                namespace,
-                                ttl,
-                                rendezvous_node,
-                            },
-                        )) => {
-                            println!(
-                                "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
-                                namespace,
-                                rendezvous_node,
-                                ttl
-                            );
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
-                            rendezvous::client::Event::RegisterFailed {
-                                rendezvous_node,
-                                namespace,
-                                error,
-                            },
-                        )) => {
-                            println!(
-                                "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
-                                rendezvous_node,
-                                namespace,
-                                error
-                            );
-                        }
-                        _ => {}
-                    }
-                    // _ = discover_tick.tick() => if cookie.is_some() {
-                    //         swarm.behaviour_mut().rendezvous.discover(
-                    //             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                    //             cookie.clone(),
-                    //             None,
-                    //             rendezvous_point
-                    //             )
-                    //         } else {}
-
-                    // _ = discover_tick.tick() => {
-                    //     if cookie.is_some() {
-                    //         swarm.behaviour_mut().rendezvous.discover(
-                    //             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                    //             cookie.clone(),
-                    //             None,
-                    //             rendezvous_point
-                    //             )
-                    //     }
-                    // }
+                    // println!("{event:?}");
+                    self.process_swarm_events(event, &mut swarm, &mut cookie).await;
+                    // println!("finished swarm event");
                 }
             }
         }
     }
 
-    #[cfg(feature = "validator")]
+    #[cfg(any(feature = "validator"))]
     pub async fn loop_swarm(&mut self) {
         let mut swarm = self.create_swarm().await.unwrap();
-        // if let Ok(peer) = env::var("PEER") {
-        //     let addr = peer.parse::<Multiaddr>().unwrap();
-        //     let _ = swarm.dial(addr);
-        // }
         let mut discover_tick = tokio::time::interval(Duration::from_secs(30));
         let mut cookie = None;
-        let rendezous_peer_id = "12D3KooWCxV8czTueJYfzFsuJcjQPe6R3ZxJZdgcYeZYZS9Drqtw"
-            .parse()
-            .unwrap();
         loop {
             tokio::select! {
                 _ = discover_tick.tick() => {
@@ -610,345 +466,307 @@ impl P2P {
                             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
                             cookie.clone(),
                             None,
-                            rendezous_peer_id
-                            )
+                            rendezvous_peer_id().await.clone()
+                        )
                     }
                 }
-                // need a mechanism to routeinly go around and check the queues process the next one if somethign went wrong
+                // need a mechanism to routeinly go around and check the queues process the next one if something went wrong
                 event = swarm.select_next_some() => {
-                    match event {
-                        SwarmEvent::NewListenAddr { address, .. } => {
-                            println!("Listening on {address:?}");
-                        }
-                        SwarmEvent::IncomingConnection { local_addr, .. } => {
-                            println!("incoming connection: {local_addr:?}");
-                        }
-                        // SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(event)) => {
-                        //     println!("identify: {event:?}");
-                        // }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(identify::Event::Received {
-                            ..
-                        })) => {
-                            if let Err(error) = swarm.behaviour_mut().rendezvous.register(
-                                rendezvous::Namespace::from_static(NAMESPACE),
-                                rendezous_peer_id.clone(),
-                                None,
-                            ) {
-                                println!("Failed to register: {error}");
-                                return;
-                            }
-                            println!("Connected");
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Gossipsub(gossipsub::Event::Message {
-                            propagation_source: peer_id,
-                            message_id: id,
-                            message,
-                        })) => {
-                            println!(
-                                "Got message: {} with id: {} from peer: {:?}",
-                                String::from_utf8_lossy(&message.data),
-                                id,
-                                peer_id
-                            );
-                            let mut propose_request: ProcessRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
-                            match propose_request.status {
-                                DataRequestType::PROPOSE => {
-                                    println!("processing proposal");
-                                    let datetime = Utc::now();
-                                    propose_request.datetime = Some(datetime);
-                                    let hash = calculate_hash(&propose_request);
-                                    println!("{hash}");
-                                    propose_request.hash = hash;
-                                    propose_request.status = DataRequestType::CORROBORATE;
-                                    let connections: &usize = &swarm.connected_peers().count();
-                                    println!("{connections}");
-                                    propose_request.connected_peers = if connections > &1 {
-                                        connections - 1
-                                    } else { connections.clone() };
-                                    let required_signatures = 1;
-                                    {
-                                        let proposal_queue = &mut self.proposal_queues.write().await;
-                                        if let Some(user_queue) = proposal_queue.get_mut(&propose_request.user_id) {
-                                            user_queue.write().await.push(propose_request.clone());
-                                        } else {
-                                            proposal_queue.insert(propose_request.user_id.clone(), RwLock::new(vec![propose_request.clone()]));
-                                        }
-                                    }
-                                    println!("sending proposal");
-                                    self.process_next_request(&propose_request.user_id, hash, &mut swarm).await;
-                                },
-                                DataRequestType::VALID | DataRequestType::INVALID => {
-                                    let hash = calculate_hash(&propose_request);
-                                    let result = {
-                                        let proposals = &mut self.proposals_processing.write().await;
-                                        if let Some(request) = proposals.get_mut(&propose_request.user_id) {
-                                            if request.hash != hash {
-                                                return;
-                                            }
-                                            for signature in propose_request.validated_signatures.iter() {
-                                                request.validated_signatures.insert(signature.clone());
-                                            }
-                                            for signature in propose_request.failed_signatures.iter() {
-                                                request.failed_signatures.insert(signature.clone());
-                                            }
-                                            self.check_if_validated(request, &mut swarm, hash).await
-                                        } else {
-                                            println!("processing request not found for user {}, hash: {hash}", propose_request.user_id);
-                                            println!("{:?}", proposals);
-                                            return;
-                                        }
-                                    };
-                                    if let Err(e) = result {
-                                        println!("{e:?}");
-                                    } else if result.unwrap().0.len() > 0 {
-                                        println!("IGNORED");
-                                        {
-                                            self.proposals_processing.write().await.remove(&propose_request.user_id);
-                                        }
-                                        self.process_next_request(&propose_request.user_id, hash, &mut swarm).await;
-                                    } else {
-                                        println!("OTHER");
-                                    };
+                    self.process_swarm_events(event, &mut swarm, &mut cookie).await;
+                }
+            }
+        }
+    }
 
-                                    // } else {
-                                    //     println!("processing request not found for user {}, hash: {hash}", propose_request.user_id);
-                                    //     println!("{:?}", proposals);
-                                    // }
-                                },
-                                DataRequestType::IGNORED => {
-                                    let hash = calculate_hash(&propose_request);
-                                    let result = {
-                                        let proposals = &mut self.proposals_processing.write().await;
-                                        if let Some(request) = proposals.get_mut(&propose_request.user_id) {
-                                            if request.hash != hash {
-                                                return;
-                                            }
-                                            for signature in propose_request.ignore_signatures.iter() {
-                                                request.ignore_signatures.insert(signature.clone());
-                                            }
-                                            self.check_if_validated(request, &mut swarm, hash).await
-                                        } else {
-                                            Err(PublishError::Duplicate)
-                                        }
-                                    };
-                                    if let Err(e) = result {
-                                        println!("{e:?}");
-                                    } else if result.unwrap().0.len() > 0 {
-                                        println!("IGNORED");
-                                        {
-                                            self.proposals_processing.write().await.remove(&propose_request.user_id);
-                                        }
-                                        self.process_next_request(&propose_request.user_id, hash, &mut swarm).await;
-                                    } else {
-                                        println!("OTHER");
-                                    };
-                                },
-                                _ => {},
+    #[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
+    async fn register(&self, swarm: &mut Swarm<BecoBehaviour>) {
+        if let Err(error) = swarm.behaviour_mut().rendezvous.register(
+            rendezvous::Namespace::from_static(NAMESPACE),
+            rendezvous_peer_id().await.clone(),
+            None,
+        ) {
+            println!("Failed to register: {error}");
+            return;
+        }
+    }
+
+    #[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
+    async fn process_swarm_events(&self, event: SwarmEvent<BecoBehaviourEvent, THandlerErr<BecoBehaviour>>, swarm: &mut Swarm<BecoBehaviour>, cookie: &mut Option<rendezvous::Cookie>) {
+
+        match event {
+            SwarmEvent::NewListenAddr { address, .. } => {
+                println!("Listening on {address:?}");
+            }
+            SwarmEvent::IncomingConnection { local_addr, .. } => {
+                println!("incoming connection: {local_addr:?}");
+            }
+            SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                if peer_id == rendezvous_peer_id().await.clone() {
+                    self.register(swarm).await;
+                }
+            }
+            SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(identify::Event::Received {
+                ..
+            })) => {
+                self.register(swarm).await;
+            }
+            SwarmEvent::Behaviour(BecoBehaviourEvent::Ping(event)) => {
+                match event {
+                    ping::Event {
+                        peer,
+                        result: Result::Ok(rtt),
+                        ..
+                    } => {
+                        println!(
+                            "ping: rtt to {} is {} ms",
+                            peer.to_base58(),
+                            rtt.as_millis()
+                        );
+                    }
+                    ping::Event {
+                        peer,
+                        result: Result::Err(ping::Failure::Timeout),
+                        ..
+                    } => {
+                        if peer == rendezvous_peer_id().await.clone() {
+                            self.register(swarm).await;
+                        }
+                        println!("ping: timeout to {}", peer.to_base58());
+                    }
+                    ping::Event {
+                        peer,
+                        result: Result::Err(ping::Failure::Unsupported),
+                        ..
+                    } => {
+                        println!("ping: {} does not support ping protocol", peer.to_base58());
+                    }
+                    ping::Event {
+                        peer,
+                        result: Result::Err(ping::Failure::Other { error }),
+                        ..
+                    } => {
+                        println!("ping: ping::Failure with {}: {error}", peer.to_base58());
+                    }
+                }
+            }
+            SwarmEvent::ConnectionEstablished { peer_id, .. } if peer_id == rendezvous_peer_id().await.clone() => {
+                println!(
+                    "Connected to rendezvous point, discovering nodes in '{}' namespace ...",
+                    NAMESPACE
+                );
+
+                swarm.behaviour_mut().rendezvous.discover(
+                    Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                    None,
+                    None,
+                    rendezvous_peer_id().await.clone(),
+                );
+            }
+            SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(rendezvous::client::Event::Discovered {
+                registrations,
+                cookie: new_cookie,
+                ..
+            })) => {
+                cookie.replace(new_cookie);
+
+                for registration in registrations {
+                    for address in registration.record.addresses() {
+                        let peer = registration.record.peer_id();
+                        println!("Discovered peer {} at {}", peer, address);
+
+                        let p2p_suffix = Protocol::P2p(peer);
+                        let address_with_p2p =
+                            if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
+                                address.clone().with(p2p_suffix)
+                            } else {
+                                address.clone()
                             };
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Ping(event)) => {
-                            match event {
-                                ping::Event {
-                                    peer,
-                                    result: Result::Ok(rtt),
-                                    ..
-                                } => {
-                                    println!(
-                                        "ping: rtt to {} is {} ms",
-                                        peer.to_base58(),
-                                        rtt.as_millis()
-                                    );
-                                }
-                                ping::Event {
-                                    peer,
-                                    result: Result::Err(ping::Failure::Timeout),
-                                    ..
-                                } => {
-                                    println!("ping: timeout to {}", peer.to_base58());
-                                }
-                                ping::Event {
-                                    peer,
-                                    result: Result::Err(ping::Failure::Unsupported),
-                                    ..
-                                } => {
-                                    println!("ping: {} does not support ping protocol", peer.to_base58());
-                                }
-                                ping::Event {
-                                    peer,
-                                    result: Result::Err(ping::Failure::Other { error }),
-                                    ..
-                                } => {
-                                    println!("ping: ping::Failure with {}: {error}", peer.to_base58());
-                                }
-                            }
-                        }
-                        SwarmEvent::ConnectionEstablished { peer_id, .. } if peer_id == rendezous_peer_id => {
-                            println!(
-                                "Connected to rendezvous point, discovering nodes in '{}' namespace ...",
-                                NAMESPACE
-                            );
 
-                            swarm.behaviour_mut().rendezvous.discover(
-                                Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                                None,
-                                None,
-                                rendezous_peer_id,
-                            );
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(rendezvous::client::Event::Discovered {
-                            registrations,
-                            cookie: new_cookie,
-                            ..
-                        })) => {
-                            cookie.replace(new_cookie);
-
-                            for registration in registrations {
-                                for address in registration.record.addresses() {
-                                    let peer = registration.record.peer_id();
-                                    println!("Discovered peer {} at {}", peer, address);
-
-                                    let p2p_suffix = Protocol::P2p(peer);
-                                    let address_with_p2p =
-                                        if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
-                                            address.clone().with(p2p_suffix)
-                                        } else {
-                                            address.clone()
-                                        };
-
-                                    swarm.dial(address_with_p2p).unwrap();
-                                }
-                            }
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
-                            rendezvous::client::Event::Registered {
-                                namespace,
-                                ttl,
-                                rendezvous_node,
-                            },
-                        )) => {
-                            println!(
-                                "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
-                                namespace,
-                                rendezvous_node,
-                                ttl
-                            );
-                        }
-                        SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
-                            rendezvous::client::Event::RegisterFailed {
-                                rendezvous_node,
-                                namespace,
-                                error,
-                            },
-                        )) => {
-                            println!(
-                                "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
-                                rendezvous_node,
-                                namespace,
-                                error
-                            );
-                        }
-                        _ => {}
+                        swarm.dial(address_with_p2p).unwrap();
                     }
                 }
             }
+            SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
+                rendezvous::client::Event::Registered {
+                    namespace,
+                    ttl,
+                    rendezvous_node,
+                },
+            )) => {
+                println!(
+                    "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
+                    namespace,
+                    rendezvous_node,
+                    ttl
+                );
+            }
+            SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
+                rendezvous::client::Event::RegisterFailed {
+                    rendezvous_node,
+                    namespace,
+                    error,
+                },
+            )) => {
+                println!(
+                    "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
+                    rendezvous_node,
+                    namespace,
+                    error
+                );
+            }
+            SwarmEvent::Behaviour(BecoBehaviourEvent::Gossipsub(gossipsub::Event::Message {
+                propagation_source: peer_id,
+                message_id: id,
+                message,
+            })) => {
+                println!(
+                    "Got message: {} with id: {} from peer: {:?}",
+                    String::from_utf8_lossy(&message.data),
+                    id,
+                    peer_id
+                );
+                println!("{:?}", swarm.behaviour_mut().gossipsub);
+                self.process_gossipsub(message, swarm).await;
+            }
+            _ => {}
         }
     }
 
-    #[cfg(feature = "rendezvous")]
-    pub async fn loop_swarm(&mut self) {
-        let mut swarm = self.create_swarm().await.unwrap();
-        loop {
-            tokio::select! {
-                event = swarm.select_next_some() => {
-                    match event {
-                        SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                            println!("Connected to {}", peer_id);
-                        }
-                        SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                            println!("Disconnected from {}", peer_id);
-                        }
-                        SwarmEvent::Behaviour(RendezvousServerBehaviourEvent::Rendezvous(
-                            rendezvous::server::Event::PeerRegistered { peer, registration },
-                        )) => {
-                            println!(
-                                "Peer {} registered for namespace '{}'",
-                                peer,
-                                registration.namespace
-                            );
-                        }
-                        SwarmEvent::Behaviour(RendezvousServerBehaviourEvent::Rendezvous(
-                            rendezvous::server::Event::DiscoverServed {
-                                enquirer,
-                                registrations,
-                            },
-                        )) => {
-                            println!(
-                                "Served peer {} with {} registrations",
-                                enquirer,
-                                registrations.len()
-                            );
-                        }
-                        other => {
-                            println!("Unhandled {:?}", other);
-                        }
+    #[cfg(feature = "validator")]
+    async fn process_gossipsub(
+        &self,
+        message: gossipsub::Message,
+        swarm: &mut Swarm<BecoBehaviour>,
+    ) {
+        let mut propose_request: ProcessRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
+        match propose_request.status {
+            DataRequestType::PROPOSE => {
+                let datetime = Utc::now();
+                propose_request.datetime = Some(datetime);
+
+                let hash = calculate_hash(&propose_request);
+                propose_request.hash = hash;
+                propose_request.status = DataRequestType::CORROBORATE;
+
+                let connections: usize = swarm.connected_peers().count();
+                propose_request.connected_peers = if connections > 1 {
+                    connections - 1
+                } else { connections.clone() };
+
+                let required_signatures = 1;
+                {
+                    let proposal_queue = &mut self.proposal_queues.write().await;
+                    if let Some(user_queue) = proposal_queue.get_mut(&propose_request.user_id) {
+                        user_queue.write().await.push(propose_request.clone());
+                    } else {
+                        proposal_queue.insert(propose_request.user_id.clone(), RwLock::new(vec![propose_request.clone()]));
                     }
                 }
-            }
-        }
-        // unimplemented!()
+                self.process_next_request(&propose_request.user_id, swarm).await;
+            },
+            DataRequestType::VALID | DataRequestType::INVALID | DataRequestType::IGNORED=> {
+                let hash = calculate_hash(&propose_request);
+                {
+                    let proposals = &mut self.proposals_processing.write().await;
+                    if let Some(request) = proposals.get_mut(&propose_request.user_id) {
+                        if request.hash != hash {
+                            return;
+                        }
+                        for signature in propose_request.validated_signatures.iter() {
+                            request.validated_signatures.insert(signature.clone());
+                        }
+                        for signature in propose_request.failed_signatures.iter() {
+                            request.failed_signatures.insert(signature.clone());
+                        }
+                        for signature in propose_request.ignore_signatures.iter() {
+                            request.ignore_signatures.insert(signature.clone());
+                        }
+                        self.check_if_validated(request, swarm, hash).await;
+                    } else {
+                        propose_request.status = DataRequestType::NOTFOUND;
+                        let _ = swarm.behaviour_mut().gossipsub.publish(
+                            self.corroborate_gossip_sub.clone(),
+                            serde_json::to_vec(&propose_request).unwrap(),
+                        );
+                    }
+                };
+            },
+            _ => {},
+        };
     }
-
+    
     #[cfg(feature = "validator")]
     async fn check_if_validated(
         &self,
         queued_request: &mut ProcessRequest,
         swarm: &mut Swarm<BecoBehaviour>,
         hash: u64,
-    ) -> Result<MessageId, PublishError> {
-        println!("message to validate");
-        println!("{queued_request:?}");
-        if queued_request.validated_signatures.len()
-            >= (((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
-                * 0.8)
-                .ceil() as usize)
-        {
-            queued_request.status = DataRequestType::VALIDATED;
-            swarm.behaviour_mut().gossipsub.publish(
-                self.validated_gossip_sub.clone(),
-                serde_json::to_vec(&queued_request).unwrap(),
-            )
-        } else if queued_request.failed_signatures.len()
-            >= (((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
-                * 0.2)
-                .ceil() as usize)
-        {
-            queued_request.status = DataRequestType::FAILED;
-            swarm.behaviour_mut().gossipsub.publish(
-                self.validated_gossip_sub.clone(),
-                serde_json::to_vec(&queued_request).unwrap(),
-            )
-        } else {
-            Ok(MessageId(vec![]))
+    ) -> bool{
+        let validated_signatures_len = queued_request.validated_signatures.len();
+        let validated_signatures_threshold = ((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
+        * 0.8)
+        .ceil() as usize;
+
+        let failed_signatures_len = queued_request.failed_signatures.len();
+        let failed_signatures_threshold = ((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
+        * 0.2)
+        .ceil() as usize;
+
+        if self.process_if_threshold_reached(queued_request, swarm, DataRequestType::VALIDATED, validated_signatures_len, validated_signatures_threshold, hash).await {
+            return true;
         }
+
+        if self.process_if_threshold_reached(queued_request, swarm, DataRequestType::FAILED, failed_signatures_len, failed_signatures_threshold, hash).await {
+            return true;
+        }
+        false
+    }
+
+    #[cfg(feature = "validator")]
+    async fn process_if_threshold_reached(
+        &self,
+        queued_request: &mut ProcessRequest,
+        swarm: &mut Swarm<BecoBehaviour>,
+        status: DataRequestType,
+        signatures_len: usize,
+        threshold: usize,
+        hash: u64,
+    ) -> bool {
+        println!("{signatures_len} {threshold}");
+        if signatures_len < threshold {
+            return false;
+        }
+        queued_request.status = status.clone();
+        let result = swarm.behaviour_mut().gossipsub.publish(
+            self.validated_gossip_sub.clone(),
+            serde_json::to_vec(&queued_request).unwrap(),
+        );
+        println!("Sent message with status: {status} to gossipsub: {}", self.validated_gossip_sub);
+        if let Err(e) = result {
+            println!("{e:?}");
+        } else {
+            {
+                self.proposals_processing.write().await.remove(&queued_request.user_id);
+            }
+            self.process_next_request(&queued_request.user_id, swarm).await;
+        }
+        return true;
     }
 
     #[cfg(feature = "validator")]
     async fn process_next_request(
         &self,
         user_id: &String,
-        hash: u64,
         swarm: &mut Swarm<BecoBehaviour>,
     ) {
         let mut proposals_processing = self.proposals_processing.write().await;
         let mut proposal_queues = self.proposal_queues.write().await;
-        println!("boop");
         if proposals_processing.get(user_id).is_none() {
             if let Some(requests) = proposal_queues.get_mut(user_id) {
                 let request_lock = &mut requests.write().await;
                 if request_lock.len() > 0 {
                     let next_request = request_lock.remove(0);
                     proposals_processing.insert(user_id.clone(), next_request.clone());
-                    println!("sending message: {next_request:?}");
                     if let Err(e) = swarm.behaviour_mut().gossipsub.publish(
                         self.corroborate_gossip_sub.clone(),
                         serde_json::to_vec(&next_request).unwrap(),
@@ -958,176 +776,52 @@ impl P2P {
                 }
             }
         }
-        println!("here");
-        println!("{proposals_processing:?}");
     }
 
-    // pub async fn main(&self) -> Result<(), Box<dyn Error>> {
-    //     // env_logger::init();
+    #[cfg(feature = "grpc")]
+    async fn process_gossipsub(
+        &self,
+        message: gossipsub::Message,
+        swarm: &mut Swarm<BecoBehaviour>
+    ) {
+        let mut propose_request: ProcessRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
+        match propose_request.status {
+            DataRequestType::CORROBORATE => {
+                let response = self.entry.corroborate(&mut propose_request).await;
+                println!("{response:?}");
+            },
+            DataRequestType::VALIDATED => {
+                println!("Got validated request");
+                let hash = calculate_hash(&propose_request.request);
+                let response = self.entry.update(propose_request.request, propose_request.calling_user, propose_request.user_id).await;
+                println!("{response:?}");
+                if response.is_ok() {
+                    self.entry.success_event(hash).await;
+                    self.entry.ping_event(&hash).await;
+                } else {
+                    self.entry.fail_event(hash).await;
+                    self.entry.ping_event(&hash).await;
+                }
+            },
+            DataRequestType::FAILED | DataRequestType::NOTFOUND => {
+                println!("Got request with status {}", propose_request.status);
+                let hash = calculate_hash(&propose_request.request);
+                self.entry.fail_event(hash).await;
+                self.entry.ping_event(&hash).await;
+            },
+            _ => {},
+        };
+    }
 
-    //     // let ipfs_path = get_ipfs_path();
-    //     let ipfs_path = Path::new("");
-    //     // println!("using IPFS_PATH {ipfs_path:?}");
-    //     let psk: Option<PreSharedKey> = self.get_psk(&ipfs_path)?
-    //         .map(|text| PreSharedKey::from_str(&text))
-    //         .transpose()?;
-
-    //     // Create a random PeerId
-    //     let local_key = identity::Keypair::generate_ed25519();
-    //     let local_peer_id = PeerId::from(local_key.public());
-    //     println!("using random peer id: {local_peer_id:?}");
-    //     if let Some(psk) = psk {
-    //         println!("using swarm key with fingerprint: {}", psk.fingerprint());
-    //     }
-
-    //     // Set up a an encrypted DNS-enabled TCP Transport over and Yamux protocol
-    //     let transport = self.build_transport(local_key.clone(), psk);
-
-    //     // Create a Gosspipsub topic
-    //     let gossipsub_topic = gossipsub::IdentTopic::new("chat");
-
-    //     // We create a custom network behaviour that combines gossipsub, ping and identify.
-    //     #[derive(NetworkBehaviour)]
-    //     #[behaviour(to_swarm = "BecoBehaviourEvent")]
-    //     struct BecoBehaviour {
-    //         gossipsub: gossipsub::Behaviour,
-    //         identify: identify::Behaviour,
-    //         ping: ping::Behaviour,
-    //     }
-
-    //     enum BecoBehaviourEvent {
-    //         Gossipsub(gossipsub::Event),
-    //         Identify(identify::Event),
-    //         Ping(ping::Event),
-    //     }
-
-    //     impl From<gossipsub::Event> for BecoBehaviourEvent {
-    //         fn from(event: gossipsub::Event) -> Self {
-    //             BecoBehaviourEvent::Gossipsub(event)
-    //         }
-    //     }
-
-    //     impl From<identify::Event> for BecoBehaviourEvent {
-    //         fn from(event: identify::Event) -> Self {
-    //             BecoBehaviourEvent::Identify(event)
-    //         }
-    //     }
-
-    //     impl From<ping::Event> for BecoBehaviourEvent {
-    //         fn from(event: ping::Event) -> Self {
-    //             BecoBehaviourEvent::Ping(event)
-    //         }
-    //     }
-
-    //     // Create a Swarm to manage peers and events
-    //     let mut swarm = {
-    //         let gossipsub_config = gossipsub::ConfigBuilder::default()
-    //             .max_transmit_size(262144)
-    //             .build()
-    //             .expect("valid config");
-    //         let mut behaviour = BecoBehaviour {
-    //             gossipsub: gossipsub::Behaviour::new(
-    //                 gossipsub::MessageAuthenticity::Signed(local_key.clone()),
-    //                 gossipsub_config,
-    //             )
-    //             .expect("Valid configuration"),
-    //             identify: identify::Behaviour::new(identify::Config::new(
-    //                 "/ipfs/0.1.0".into(),
-    //                 local_key.public(),
-    //             )),
-    //             ping: ping::Behaviour::new(ping::Config::new()),
-    //         };
-
-    //         println!("Subscribing to {gossipsub_topic:?}");
-    //         behaviour.gossipsub.subscribe(&gossipsub_topic).unwrap();
-    //         SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build()
-    //     };
-
-    //     // Reach out to other nodes if specified
-    //     // for to_dial in std::env::args().skip(1) {
-    //     //     let addr: Multiaddr = self.parse_legacy_multiaddr(&to_dial)?;
-    //     //     swarm.dial(addr)?;
-    //     //     println!("Dialed {to_dial:?}")
-    //     // }
-
-    //     // Read full lines from stdin
-    //     // let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
-
-    //     // Listen on all interfaces and whatever port the OS assigns
-    //     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
-
-    // Kick it off
-    // loop {
-    //     tokio::select! {
-    //         line = stdin.select_next_some() => {
-    // if let Err(e) = swarm
-    //     .behaviour_mut()
-    //     .gossipsub
-    //     .publish(gossipsub_topic.clone(), line.expect("Stdin not to close").as_bytes())
-    // {
-    //     println!("Publish error: {e:?}");
-    // }
-    //         },
-    //         event = swarm.select_next_some() => {
-    //             match event {
-    //                 SwarmEvent::NewListenAddr { address, .. } => {
-    //                     println!("Listening on {address:?}");
-    //                 }
-    //                 SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(event)) => {
-    //                     println!("identify: {event:?}");
-    //                 }
-    //                 SwarmEvent::Behaviour(BecoBehaviourEvent::Gossipsub(gossipsub::Event::Message {
-    //                     propagation_source: peer_id,
-    //                     message_id: id,
-    //                     message,
-    //                 })) => {
-    //                     println!(
-    //                         "Got message: {} with id: {} from peer: {:?}",
-    //                         String::from_utf8_lossy(&message.data),
-    //                         id,
-    //                         peer_id
-    //                     )
-    //                 }
-    //                 SwarmEvent::Behaviour(BecoBehaviourEvent::Ping(event)) => {
-    //                     match event {
-    //                         ping::Event {
-    //                             peer,
-    //                             result: Result::Ok(rtt),
-    //                             ..
-    //                         } => {
-    //                             println!(
-    //                                 "ping: rtt to {} is {} ms",
-    //                                 peer.to_base58(),
-    //                                 rtt.as_millis()
-    //                             );
-    //                         }
-    //                         ping::Event {
-    //                             peer,
-    //                             result: Result::Err(ping::Failure::Timeout),
-    //                             ..
-    //                         } => {
-    //                             println!("ping: timeout to {}", peer.to_base58());
-    //                         }
-    //                         ping::Event {
-    //                             peer,
-    //                             result: Result::Err(ping::Failure::Unsupported),
-    //                             ..
-    //                         } => {
-    //                             println!("ping: {} does not support ping protocol", peer.to_base58());
-    //                         }
-    //                         ping::Event {
-    //                             peer,
-    //                             result: Result::Err(ping::Failure::Other { error }),
-    //                             ..
-    //                         } => {
-    //                             println!("ping: ping::Failure with {}: {error}", peer.to_base58());
-    //                         }
-    //                     }
-    //                 }
-    //                 _ => {}
-    //             }
-    //         }
-    //     }
-    // }
-    // }
+    #[cfg(feature = "orchestrator")]
+    async fn process_gossipsub(
+        &self,
+        message: gossipsub::Message,
+        swarm: &mut Swarm<BecoBehaviour>,
+    ) {
+        let mut propose_request: ProcessRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
+        match propose_request.status {
+            _ => {},
+        };
+    }
 }

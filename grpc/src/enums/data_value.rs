@@ -61,6 +61,8 @@ pub enum DataRequestType {
     FAILED,
     #[strum(serialize = "LOAD")]
     LOAD,
+    #[strum(serialize = "NOT_FOUND")]
+    NOTFOUND,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
