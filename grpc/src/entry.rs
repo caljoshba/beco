@@ -178,9 +178,7 @@ impl Entry {
     }
 
     pub async fn ping_event(&self, hash: &u64) {
-        println!("\n\n\nTrying to ping event");
         if let Some(event) = self.events.read().await.get(hash) {
-            println!("\n\n\nPinging event");
             event.notify(1);
         }
     }
@@ -372,9 +370,7 @@ impl Entry {
         calling_user_id: String,
         user_id: String,
     ) -> Result<GetUserResponse, BecoError> {
-        println!("updating {data_request:?}");
         let users = self.users.read().await;
-        println!("\n\n\n\nCan read users");
         let calling_user = self
             .get_public_user(
                 &users.get(&calling_user_id),

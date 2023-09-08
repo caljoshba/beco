@@ -49,7 +49,7 @@ static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWD4VopJw8ZYno1GQYP7sWr8eTVoCne6iidUQ5iMes5aYb"
+            "12D3KooWKQ1YyFKHLMYivombiUWpsWgND3oZh2bFxfQgAGJJc6ng"
                 .parse()
                 .unwrap()
         })
@@ -232,6 +232,7 @@ impl P2P {
             SwarmBuilder::with_tokio_executor(transport, behaviour, self.peer_id).build();
 
         swarm.listen_on(rendezvous_address().await.clone())?;
+        swarm.add_external_address(rendezvous_address().await.clone());
         println!("Peer ID: {:?}", self.peer_id);
 
         Ok(swarm)
@@ -266,15 +267,13 @@ impl P2P {
                                 registrations,
                             },
                         )) => {
-                            println!(
-                                "Served peer {} with {} registrations",
-                                enquirer,
-                                registrations.len()
-                            );
+                            // println!(
+                            //     "Served peer {} with {} registrations",
+                            //     enquirer,
+                            //     registrations.len()
+                            // );
                         }
-                        other => {
-                            println!("Unhandled {:?}", other);
-                        }
+                        other => {}
                     }
                 }
             }
@@ -340,7 +339,7 @@ impl P2P {
                 .unwrap(),
         );
         swarm.dial(rendezvous_address().await.clone())?;
-
+        println!("Peer ID: {:?}", self.peer_id);
         Ok(swarm)
     }
 
@@ -432,7 +431,6 @@ impl P2P {
                     println!("Mesage sent with status: {}", request.status);
                 }
                 _ = discover_tick.tick() => {
-                    // println!("ticking");
                     if cookie.is_some() {
                         swarm.behaviour_mut().rendezvous.discover(
                             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
@@ -441,13 +439,10 @@ impl P2P {
                             rendezvous_peer_id().await.clone()
                         );
                     }
-                    // println!("finished ticking");
                 }
                 // need a mechanism to routinely go around and check the queues process the next one if something went wrong
                 event = swarm.select_next_some() => {
-                    // println!("{event:?}");
                     self.process_swarm_events(event, &mut swarm, &mut cookie).await;
-                    // println!("finished swarm event");
                 }
             }
         }
@@ -480,13 +475,16 @@ impl P2P {
 
     #[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
     async fn register(&self, swarm: &mut Swarm<BecoBehaviour>) {
-        if let Err(error) = swarm.behaviour_mut().rendezvous.register(
-            rendezvous::Namespace::from_static(NAMESPACE),
+        let result = swarm.behaviour_mut().rendezvous.register(
+            rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap(),
             rendezvous_peer_id().await.clone(),
             None,
-        ) {
+        );
+        if let Err(error) = result {
             println!("Failed to register: {error}");
             return;
+        } else {
+            println!("registered with result: {result:?}");
         }
     }
 
@@ -507,9 +505,7 @@ impl P2P {
             }
             SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(identify::Event::Received {
                 ..
-            })) => {
-                self.register(swarm).await;
-            }
+            })) => {}
             SwarmEvent::Behaviour(BecoBehaviourEvent::Ping(event)) => {
                 match event {
                     ping::Event {
@@ -545,22 +541,24 @@ impl P2P {
                         result: Result::Err(ping::Failure::Other { error }),
                         ..
                     } => {
+                        if peer == rendezvous_peer_id().await.clone() {
+                            self.register(swarm).await;
+                        }
                         println!("ping: ping::Failure with {}: {error}", peer.to_base58());
                     }
                 }
             }
-            SwarmEvent::ConnectionEstablished { peer_id, .. } if peer_id == rendezvous_peer_id().await.clone() => {
-                println!(
-                    "Connected to rendezvous point, discovering nodes in '{}' namespace ...",
-                    NAMESPACE
-                );
-
-                swarm.behaviour_mut().rendezvous.discover(
-                    Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                    None,
-                    None,
-                    rendezvous_peer_id().await.clone(),
-                );
+            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                println!("Connection established: {peer_id:?}");
+                if peer_id == rendezvous_peer_id().await.clone() {
+                    self.register(swarm).await;
+                    swarm.behaviour_mut().rendezvous.discover(
+                        Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                        None,
+                        None,
+                        rendezvous_peer_id().await.clone(),
+                    );
+                }
             }
             SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(rendezvous::client::Event::Discovered {
                 registrations,
@@ -575,7 +573,7 @@ impl P2P {
                         println!("Discovered peer {} at {}", peer, address);
 
                         let p2p_suffix = Protocol::P2p(peer);
-                        let address_with_p2p =
+                        let address_with_p2p: Multiaddr =
                             if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
                                 address.clone().with(p2p_suffix)
                             } else {
@@ -625,7 +623,6 @@ impl P2P {
                     id,
                     peer_id
                 );
-                println!("{:?}", swarm.behaviour_mut().gossipsub);
                 self.process_gossipsub(message, swarm).await;
             }
             _ => {}
@@ -667,8 +664,8 @@ impl P2P {
             DataRequestType::VALID | DataRequestType::INVALID | DataRequestType::IGNORED=> {
                 let hash = calculate_hash(&propose_request);
                 {
-                    let proposals = &mut self.proposals_processing.write().await;
-                    if let Some(request) = proposals.get_mut(&propose_request.user_id) {
+                    let proposals_processing = &mut self.proposals_processing.write().await;
+                    if let Some(request) = proposals_processing.get_mut(&propose_request.user_id) {
                         if request.hash != hash {
                             return;
                         }
@@ -681,7 +678,6 @@ impl P2P {
                         for signature in propose_request.ignore_signatures.iter() {
                             request.ignore_signatures.insert(signature.clone());
                         }
-                        self.check_if_validated(request, swarm, hash).await;
                     } else {
                         propose_request.status = DataRequestType::NOTFOUND;
                         let _ = swarm.behaviour_mut().gossipsub.publish(
@@ -690,6 +686,7 @@ impl P2P {
                         );
                     }
                 };
+                self.check_if_validated(&mut propose_request, swarm, hash).await;
             },
             _ => {},
         };
@@ -698,28 +695,40 @@ impl P2P {
     #[cfg(feature = "validator")]
     async fn check_if_validated(
         &self,
-        queued_request: &mut ProcessRequest,
+        propose_request: &mut ProcessRequest,
         swarm: &mut Swarm<BecoBehaviour>,
         hash: u64,
     ) -> bool{
-        let validated_signatures_len = queued_request.validated_signatures.len();
-        let validated_signatures_threshold = ((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
-        * 0.8)
-        .ceil() as usize;
+        let processed = {
+            let proposals_processing = &mut self.proposals_processing.write().await;
+            if let Some(queued_request) = proposals_processing.get_mut(&propose_request.user_id) {
+                let validated_signatures_len = queued_request.validated_signatures.len();
+                let validated_signatures_threshold = ((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
+                * 0.8)
+                .ceil() as usize;
+        
+                let failed_signatures_len = queued_request.failed_signatures.len();
+                let failed_signatures_threshold = ((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
+                * 0.2)
+                .ceil() as usize;
+                if self.process_if_threshold_reached(queued_request, swarm, DataRequestType::VALIDATED, validated_signatures_len, validated_signatures_threshold, hash).await {
+                    return true;
+                }
 
-        let failed_signatures_len = queued_request.failed_signatures.len();
-        let failed_signatures_threshold = ((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
-        * 0.2)
-        .ceil() as usize;
+                if self.process_if_threshold_reached(queued_request, swarm, DataRequestType::FAILED, failed_signatures_len, failed_signatures_threshold, hash).await {
+                    return true;
+                }
+            }
+            false
+        };
 
-        if self.process_if_threshold_reached(queued_request, swarm, DataRequestType::VALIDATED, validated_signatures_len, validated_signatures_threshold, hash).await {
-            return true;
+        if processed {
+            {
+                self.proposals_processing.write().await.remove(&propose_request.user_id);
+            }
+            self.process_next_request(&propose_request.user_id, swarm).await;
         }
-
-        if self.process_if_threshold_reached(queued_request, swarm, DataRequestType::FAILED, failed_signatures_len, failed_signatures_threshold, hash).await {
-            return true;
-        }
-        false
+        processed
     }
 
     #[cfg(feature = "validator")]
@@ -732,7 +741,6 @@ impl P2P {
         threshold: usize,
         hash: u64,
     ) -> bool {
-        println!("{signatures_len} {threshold}");
         if signatures_len < threshold {
             return false;
         }
@@ -741,14 +749,10 @@ impl P2P {
             self.validated_gossip_sub.clone(),
             serde_json::to_vec(&queued_request).unwrap(),
         );
-        println!("Sent message with status: {status} to gossipsub: {}", self.validated_gossip_sub);
+        
         if let Err(e) = result {
-            println!("{e:?}");
-        } else {
-            {
-                self.proposals_processing.write().await.remove(&queued_request.user_id);
-            }
-            self.process_next_request(&queued_request.user_id, swarm).await;
+            println!("Error pusblishing message: {e:?}");
+            return false
         }
         return true;
     }
@@ -791,7 +795,6 @@ impl P2P {
                 println!("{response:?}");
             },
             DataRequestType::VALIDATED => {
-                println!("Got validated request");
                 let hash = calculate_hash(&propose_request.request);
                 let response = self.entry.update(propose_request.request, propose_request.calling_user, propose_request.user_id).await;
                 println!("{response:?}");
@@ -804,7 +807,6 @@ impl P2P {
                 }
             },
             DataRequestType::FAILED | DataRequestType::NOTFOUND => {
-                println!("Got request with status {}", propose_request.status);
                 let hash = calculate_hash(&propose_request.request);
                 self.entry.fail_event(hash).await;
                 self.entry.ping_event(&hash).await;
