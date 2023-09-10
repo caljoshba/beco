@@ -23,6 +23,7 @@ const BAD_BLOCKCHAIN: &str = "Invalid Blockchain value provided";
 const BAD_ACCOUNT: &str = "No matching account found";
 const NOT_AUTH: &str = "Not authorised to perform this action";
 
+#[cfg(not(feature = "orchestrator"))]
 #[derive(Debug)]
 pub struct Entry {
     users: Arc<RwLock<HashMap<String, RwLock<User>>>>,
@@ -34,7 +35,14 @@ pub struct Entry {
     // add a timeout queue that the p2p side can check - just an Instant::now() thing rather than a future so it can be checked multiple times
 }
 
+#[cfg(feature = "orchestrator")]
+#[derive(Debug)]
+pub struct Entry {
+    users: Arc<RwLock<HashMap<String, RwLock<User>>>>,
+}
+
 impl Entry {
+    #[cfg(not(feature = "orchestrator"))]
     pub fn new(tx_p2p: Sender<Value>, tx_grpc: Sender<Value>, rx_grpc: Receiver<Value>) -> Self {
         Self {
             users: Arc::new(RwLock::new(HashMap::new())),
@@ -43,6 +51,12 @@ impl Entry {
             rx_grpc,
             completion_loops: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
+        }
+    }
+    #[cfg(feature = "orchestrator")]
+    pub fn new() -> Self {
+        Self {
+            users: Arc::new(RwLock::new(HashMap::new())),
         }
     }
     async fn get_public_user<'a>(
@@ -60,7 +74,7 @@ impl Entry {
         }
         user_basic
     }
-
+    #[cfg(not(feature = "orchestrator"))]
     pub async fn add_user(&self, request: AddUserRequest) -> GetUserResponse {
         let user = User::new(request.name, self.tx_p2p.clone(), self.tx_grpc.clone());
         let mut users = self.users.write().await;
@@ -73,6 +87,21 @@ impl Entry {
             )
             .await;
         calling_user.into()
+    }
+
+    #[cfg(feature = "orchestrator")]
+    pub async fn add_user(&self, request: AddUserRequest) -> User {
+        let user = User::new(request.name);
+        let mut users = self.users.write().await;
+        users.insert(user.id.to_string(), RwLock::new(user.clone()));
+        let calling_user = self
+            .get_public_user(
+                &users.get(&user.id.to_string()),
+                user.id.to_string(),
+                user.id.to_string(),
+            )
+            .await;
+        user
     }
 
     pub async fn list_user(&self, request: ListUserRequest) -> ListUserResponse {
@@ -176,36 +205,36 @@ impl Entry {
             status: Code::NotFound,
         })
     }
-
+    #[cfg(not(feature = "orchestrator"))]
     pub async fn ping_event(&self, hash: &u64) {
         if let Some(event) = self.events.read().await.get(hash) {
             event.notify(1);
         }
     }
-
+    #[cfg(not(feature = "orchestrator"))]
     pub async fn create_event(&self, hash: u64) {
         let event = ProposeEvent::new(DataRequestType::PROPOSE, Duration::from_secs(5));
         self.completion_loops.write().await.insert(hash, event);
         self.events.write().await.insert(hash, Event::new());
     }
-
+    #[cfg(not(feature = "orchestrator"))]
     pub async fn remove_event(&self, hash: &u64) {
         self.completion_loops.write().await.remove(hash);
         self.events.write().await.remove(&hash);
     }
-
+    #[cfg(not(feature = "orchestrator"))]
     pub async fn fail_event(&self, hash: u64) {
         if let Some(event) = self.completion_loops.write().await.get_mut(&hash) {
             event.update(DataRequestType::FAILED);
         }        
     }
-
+    #[cfg(not(feature = "orchestrator"))]
     pub async fn success_event(&self, hash: u64) {
         if let Some(event) = self.completion_loops.write().await.get_mut(&hash) {
             event.update(DataRequestType::VALIDATED);
         }
     }
-
+    #[cfg(not(feature = "orchestrator"))]
     async fn propose_value(&self, user_option: &Option<&RwLock<User>>, request: DataRequests, calling_user: &PublicUser) -> Result<(), BecoError> {
         let read_user = user_option.unwrap().read().await;
             match request {
@@ -234,7 +263,7 @@ impl Entry {
             }
     }
 
-    // async fn send_process_request(&self, corroborate_signatures: HashSet<String>, ignore_signatures: HashSet<String>, status: DataRequestType,)
+    #[cfg(not(feature = "orchestrator"))]
     pub async fn corroborate(&self, request: &mut ProcessRequest) {
         let users = &self.users.read().await;
         let calling_user = self
@@ -279,7 +308,7 @@ impl Entry {
                 .await;
         }
     }
-
+    #[cfg(not(feature = "orchestrator"))]
     pub async fn propose(
         &self,
         data_request: DataRequests,

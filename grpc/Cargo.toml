@@ -7,22 +7,22 @@ edition = "2021"
 
 [[bin]]
 name = "server"
-path = "src/main.rs"
+path = "src/grpc.rs"
 required-features = ["grpc"]
 
 [[bin]]
 name = "validator"
-path = "src/main.rs"
+path = "src/validator.rs"
 required-features = ["validator"]
 
 [[bin]]
 name = "orchestrator"
-path = "src/main.rs"
+path = "src/orchestrator.rs"
 required-features = ["orchestrator"]
 
 [[bin]]
 name = "rendezvous"
-path = "src/main.rs"
+path = "src/rendezvous.rs"
 required-features = ["rendezvous"]
 
 [features]
@@ -51,6 +51,7 @@ serde = { version = "1.0.187", features = [ "derive" ] }
 event-listener = { version = "2.5.3" }
 chrono = { version = "0.4.26", features = [ "serde" ]}
 void = { version = "1.0.2" }
+rs_merkle = { version = "1.4.1" }
 
 [build-dependencies]
 tonic-build = { version = "0.10.0" }

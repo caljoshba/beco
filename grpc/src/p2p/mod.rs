@@ -1,39 +1,71 @@
 mod behaviour;
 
-#[cfg(not(feature = "rendezvous"))]
+#[cfg(any(feature = "grpc", feature = "validator", feature = "rendezvous", feature = "orchestrator"))]
+use either::Either;
+#[cfg(any(feature = "grpc", feature = "validator", feature = "rendezvous", feature = "orchestrator"))]
+use futures::prelude::*;
+#[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
+use libp2p::{
+    core::{muxing::StreamMuxerBox, transport, transport::upgrade::Version},
+    gossipsub, identify, identity,
+    multiaddr::Protocol,
+    noise, ping,
+    pnet::{PnetConfig, PreSharedKey},
+    rendezvous,
+    swarm::{keep_alive, SwarmBuilder, SwarmEvent, THandlerErr},
+    tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
+};
+#[cfg(any(feature = "validator", feature = "orchestrator"))]
+use std::{env, error::Error, fs, path::Path, str::FromStr, time::Duration};
+#[cfg(any(feature = "rendezvous", feature = "orchestrator"))]
+use tokio::sync::OnceCell;
+
+#[cfg(any(feature = "grpc"))]
 use crate::{
     entry::Entry,
     enums::data_value::{DataRequestType, ProcessRequest},
     p2p::behaviour::{BecoBehaviour, BecoBehaviourEvent},
-    utils::{calculate_hash, ProposeEvent},
+    utils::calculate_hash,
 };
+#[cfg(any(feature = "grpc"))]
+use serde_json::Value;
+#[cfg(any(feature = "grpc"))]
+use std::{env, error::Error, fs, path::Path, str::FromStr, sync::Arc, time::Duration};
+#[cfg(any(feature = "grpc"))]
+use tokio::sync::{mpsc::Receiver, OnceCell};
+
+#[cfg(feature = "validator")]
+use crate::{
+    enums::data_value::{DataRequestType, ProcessRequest},
+    p2p::behaviour::{BecoBehaviour, BecoBehaviourEvent},
+    utils::calculate_hash,
+};
+#[cfg(any(feature = "validator"))]
 use chrono::prelude::*;
-use either::Either;
-use futures::{future::Lazy, prelude::*};
+#[cfg(any(feature = "validator"))]
+use std::collections::HashMap;
+#[cfg(any(feature = "validator"))]
+use tokio::sync::{OnceCell, RwLock};
+
+#[cfg(feature = "rendezvous")]
+use crate::p2p::behaviour::{RendezvousServerBehaviour, RendezvousServerBehaviourEvent};
+#[cfg(any(feature = "rendezvous"))]
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport, transport::upgrade::Version},
-    gossipsub::{self, MessageId, PublishError},
     identify, identity,
     multiaddr::Protocol,
     noise, ping,
     pnet::{PnetConfig, PreSharedKey},
     rendezvous,
-    swarm::{keep_alive, NetworkBehaviour, SwarmBuilder, SwarmEvent, THandlerErr},
+    swarm::{keep_alive, SwarmBuilder, SwarmEvent},
     tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
 };
-use serde_json::Value;
-use std::{
-    collections::HashMap, env, error::Error, fs, path::Path, str::FromStr, sync::Arc,
-    time::Duration,
-};
-use tokio::sync::{mpsc::Receiver, OnceCell, RwLock, RwLockWriteGuard};
-
-#[cfg(feature = "rendezvous")]
+#[cfg(any(feature = "rendezvous"))]
+use std::{error::Error, fs, path::Path, str::FromStr, time::Duration};
+#[cfg(any(feature = "orchestrator"))]
 use crate::{
-    entry::Entry,
     enums::data_value::{DataRequestType, ProcessRequest},
-    p2p::behaviour::{RendezvousServerBehaviour, RendezvousServerBehaviourEvent},
-    utils::{calculate_hash, ProposeEvent},
+    p2p::behaviour::{BecoBehaviour, BecoBehaviourEvent},
 };
 
 // https://github.com/libp2p/rust-libp2p/blob/master/examples/ipfs-private/src/main.rs
@@ -49,7 +81,7 @@ static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWKQ1YyFKHLMYivombiUWpsWgND3oZh2bFxfQgAGJJc6ng"
+            "12D3KooWF7xVsdhKwfaG18i95gfhn4Ez1PtwCmzk5TVr4sYLkuXk"
                 .parse()
                 .unwrap()
         })
@@ -85,7 +117,7 @@ pub struct P2P {
     keys: identity::Keypair,
     peer_id: PeerId,
     validated_gossip_sub: gossipsub::IdentTopic,
-    load_user_gossip_sub: gossipsub::IdentTopic,
+    load_gossip_sub: gossipsub::IdentTopic,
 }
 
 #[cfg(feature = "rendezvous")]
@@ -142,6 +174,22 @@ impl P2P {
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
         Self { keys, peer_id }
+    }
+
+    #[cfg(feature = "orchestrator")]
+    pub fn new() -> Self {
+        let keys = identity::Keypair::generate_ed25519();
+        let peer_id = PeerId::from(keys.public());
+        let validated_gossip_sub =
+            gossipsub::IdentTopic::new(DataRequestType::VALIDATED.to_string());
+        let load_gossip_sub =
+            gossipsub::IdentTopic::new(DataRequestType::LOAD.to_string());
+        Self {
+            keys,
+            peer_id,
+            validated_gossip_sub,
+            load_gossip_sub,
+        }
     }
 
     pub fn build_transport(
@@ -393,10 +441,10 @@ impl P2P {
             .gossipsub
             .subscribe(&self.validated_gossip_sub)
             .unwrap();
-        println!("Subscribing to {:?}", self.load_user_gossip_sub);
+        println!("Subscribing to {:?}", self.load_gossip_sub);
         behaviour
             .gossipsub
-            .subscribe(&self.load_user_gossip_sub)
+            .subscribe(&self.load_gossip_sub)
             .unwrap();
     }
 
@@ -408,7 +456,6 @@ impl P2P {
         loop {
             tokio::select! {
                 Some(message) = self.rx_p2p.recv() => {
-                    println!("Got message to send");
                     let request: ProcessRequest = serde_json::from_value(message.clone()).unwrap();
                     let gossip_sub = match request.status {
                         DataRequestType::PROPOSE => { &self.propose_gossip_sub },
@@ -473,6 +520,31 @@ impl P2P {
         }
     }
 
+    #[cfg(any(feature = "orchestrator"))]
+    pub async fn loop_swarm(&mut self) {
+        let mut swarm = self.create_swarm().await.unwrap();
+        let mut discover_tick = tokio::time::interval(Duration::from_secs(30));
+        let mut cookie = None;
+        loop {
+            tokio::select! {
+                _ = discover_tick.tick() => {
+                    if cookie.is_some() {
+                        swarm.behaviour_mut().rendezvous.discover(
+                            Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                            cookie.clone(),
+                            None,
+                            rendezvous_peer_id().await.clone()
+                        )
+                    }
+                }
+                // need a mechanism to routeinly go around and check the queues process the next one if something went wrong
+                event = swarm.select_next_some() => {
+                    self.process_swarm_events(event, &mut swarm, &mut cookie).await;
+                }
+            }
+        }
+    }
+
     #[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
     async fn register(&self, swarm: &mut Swarm<BecoBehaviour>) {
         let result = swarm.behaviour_mut().rendezvous.register(
@@ -489,8 +561,12 @@ impl P2P {
     }
 
     #[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
-    async fn process_swarm_events(&self, event: SwarmEvent<BecoBehaviourEvent, THandlerErr<BecoBehaviour>>, swarm: &mut Swarm<BecoBehaviour>, cookie: &mut Option<rendezvous::Cookie>) {
-
+    async fn process_swarm_events(
+        &self,
+        event: SwarmEvent<BecoBehaviourEvent, THandlerErr<BecoBehaviour>>,
+        swarm: &mut Swarm<BecoBehaviour>,
+        cookie: &mut Option<rendezvous::Cookie>,
+    ) {
         match event {
             SwarmEvent::NewListenAddr { address, .. } => {
                 println!("Listening on {address:?}");
@@ -506,48 +582,46 @@ impl P2P {
             SwarmEvent::Behaviour(BecoBehaviourEvent::Identify(identify::Event::Received {
                 ..
             })) => {}
-            SwarmEvent::Behaviour(BecoBehaviourEvent::Ping(event)) => {
-                match event {
-                    ping::Event {
-                        peer,
-                        result: Result::Ok(rtt),
-                        ..
-                    } => {
-                        println!(
-                            "ping: rtt to {} is {} ms",
-                            peer.to_base58(),
-                            rtt.as_millis()
-                        );
-                    }
-                    ping::Event {
-                        peer,
-                        result: Result::Err(ping::Failure::Timeout),
-                        ..
-                    } => {
-                        if peer == rendezvous_peer_id().await.clone() {
-                            self.register(swarm).await;
-                        }
-                        println!("ping: timeout to {}", peer.to_base58());
-                    }
-                    ping::Event {
-                        peer,
-                        result: Result::Err(ping::Failure::Unsupported),
-                        ..
-                    } => {
-                        println!("ping: {} does not support ping protocol", peer.to_base58());
-                    }
-                    ping::Event {
-                        peer,
-                        result: Result::Err(ping::Failure::Other { error }),
-                        ..
-                    } => {
-                        if peer == rendezvous_peer_id().await.clone() {
-                            self.register(swarm).await;
-                        }
-                        println!("ping: ping::Failure with {}: {error}", peer.to_base58());
-                    }
+            SwarmEvent::Behaviour(BecoBehaviourEvent::Ping(event)) => match event {
+                ping::Event {
+                    peer,
+                    result: Result::Ok(rtt),
+                    ..
+                } => {
+                    println!(
+                        "ping: rtt to {} is {} ms",
+                        peer.to_base58(),
+                        rtt.as_millis()
+                    );
                 }
-            }
+                ping::Event {
+                    peer,
+                    result: Result::Err(ping::Failure::Timeout),
+                    ..
+                } => {
+                    if peer == rendezvous_peer_id().await.clone() {
+                        self.register(swarm).await;
+                    }
+                    println!("ping: timeout to {}", peer.to_base58());
+                }
+                ping::Event {
+                    peer,
+                    result: Result::Err(ping::Failure::Unsupported),
+                    ..
+                } => {
+                    println!("ping: {} does not support ping protocol", peer.to_base58());
+                }
+                ping::Event {
+                    peer,
+                    result: Result::Err(ping::Failure::Other { error }),
+                    ..
+                } => {
+                    if peer == rendezvous_peer_id().await.clone() {
+                        self.register(swarm).await;
+                    }
+                    println!("ping: ping::Failure with {}: {error}", peer.to_base58());
+                }
+            },
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 println!("Connection established: {peer_id:?}");
                 if peer_id == rendezvous_peer_id().await.clone() {
@@ -560,11 +634,13 @@ impl P2P {
                     );
                 }
             }
-            SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(rendezvous::client::Event::Discovered {
-                registrations,
-                cookie: new_cookie,
-                ..
-            })) => {
+            SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
+                rendezvous::client::Event::Discovered {
+                    registrations,
+                    cookie: new_cookie,
+                    ..
+                },
+            )) => {
                 cookie.replace(new_cookie);
 
                 for registration in registrations {
@@ -593,9 +669,7 @@ impl P2P {
             )) => {
                 println!(
                     "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
-                    namespace,
-                    rendezvous_node,
-                    ttl
+                    namespace, rendezvous_node, ttl
                 );
             }
             SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
@@ -607,9 +681,7 @@ impl P2P {
             )) => {
                 println!(
                     "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
-                    rendezvous_node,
-                    namespace,
-                    error
+                    rendezvous_node, namespace, error
                 );
             }
             SwarmEvent::Behaviour(BecoBehaviourEvent::Gossipsub(gossipsub::Event::Message {
@@ -635,7 +707,8 @@ impl P2P {
         message: gossipsub::Message,
         swarm: &mut Swarm<BecoBehaviour>,
     ) {
-        let mut propose_request: ProcessRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
+        let mut propose_request: ProcessRequest =
+            serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
         match propose_request.status {
             DataRequestType::PROPOSE => {
                 let datetime = Utc::now();
@@ -648,7 +721,9 @@ impl P2P {
                 let connections: usize = swarm.connected_peers().count();
                 propose_request.connected_peers = if connections > 1 {
                     connections - 1
-                } else { connections.clone() };
+                } else {
+                    connections.clone()
+                };
 
                 let required_signatures = 1;
                 {
@@ -656,12 +731,16 @@ impl P2P {
                     if let Some(user_queue) = proposal_queue.get_mut(&propose_request.user_id) {
                         user_queue.write().await.push(propose_request.clone());
                     } else {
-                        proposal_queue.insert(propose_request.user_id.clone(), RwLock::new(vec![propose_request.clone()]));
+                        proposal_queue.insert(
+                            propose_request.user_id.clone(),
+                            RwLock::new(vec![propose_request.clone()]),
+                        );
                     }
                 }
-                self.process_next_request(&propose_request.user_id, swarm).await;
-            },
-            DataRequestType::VALID | DataRequestType::INVALID | DataRequestType::IGNORED=> {
+                self.process_next_request(&propose_request.user_id, swarm)
+                    .await;
+            }
+            DataRequestType::VALID | DataRequestType::INVALID | DataRequestType::IGNORED => {
                 let hash = calculate_hash(&propose_request);
                 {
                     let proposals_processing = &mut self.proposals_processing.write().await;
@@ -686,36 +765,61 @@ impl P2P {
                         );
                     }
                 };
-                self.check_if_validated(&mut propose_request, swarm, hash).await;
-            },
-            _ => {},
+                self.check_if_validated(&mut propose_request, swarm, hash)
+                    .await;
+            }
+            _ => {}
         };
     }
-    
+
     #[cfg(feature = "validator")]
     async fn check_if_validated(
         &self,
         propose_request: &mut ProcessRequest,
         swarm: &mut Swarm<BecoBehaviour>,
         hash: u64,
-    ) -> bool{
+    ) -> bool {
         let processed = {
             let proposals_processing = &mut self.proposals_processing.write().await;
             if let Some(queued_request) = proposals_processing.get_mut(&propose_request.user_id) {
                 let validated_signatures_len = queued_request.validated_signatures.len();
-                let validated_signatures_threshold = ((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
-                * 0.8)
-                .ceil() as usize;
-        
+                let validated_signatures_threshold = ((queued_request.connected_peers
+                    - queued_request.ignore_signatures.len())
+                    as f32
+                    * 0.8)
+                    .ceil() as usize;
+
                 let failed_signatures_len = queued_request.failed_signatures.len();
-                let failed_signatures_threshold = ((queued_request.connected_peers - queued_request.ignore_signatures.len()) as f32
-                * 0.2)
-                .ceil() as usize;
-                if self.process_if_threshold_reached(queued_request, swarm, DataRequestType::VALIDATED, validated_signatures_len, validated_signatures_threshold, hash).await {
+                let failed_signatures_threshold = ((queued_request.connected_peers
+                    - queued_request.ignore_signatures.len())
+                    as f32
+                    * 0.2)
+                    .ceil() as usize;
+                if self
+                    .process_if_threshold_reached(
+                        queued_request,
+                        swarm,
+                        DataRequestType::VALIDATED,
+                        validated_signatures_len,
+                        validated_signatures_threshold,
+                        hash,
+                    )
+                    .await
+                {
                     return true;
                 }
 
-                if self.process_if_threshold_reached(queued_request, swarm, DataRequestType::FAILED, failed_signatures_len, failed_signatures_threshold, hash).await {
+                if self
+                    .process_if_threshold_reached(
+                        queued_request,
+                        swarm,
+                        DataRequestType::FAILED,
+                        failed_signatures_len,
+                        failed_signatures_threshold,
+                        hash,
+                    )
+                    .await
+                {
                     return true;
                 }
             }
@@ -724,9 +828,13 @@ impl P2P {
 
         if processed {
             {
-                self.proposals_processing.write().await.remove(&propose_request.user_id);
+                self.proposals_processing
+                    .write()
+                    .await
+                    .remove(&propose_request.user_id);
             }
-            self.process_next_request(&propose_request.user_id, swarm).await;
+            self.process_next_request(&propose_request.user_id, swarm)
+                .await;
         }
         processed
     }
@@ -749,20 +857,16 @@ impl P2P {
             self.validated_gossip_sub.clone(),
             serde_json::to_vec(&queued_request).unwrap(),
         );
-        
+
         if let Err(e) = result {
             println!("Error pusblishing message: {e:?}");
-            return false
+            return false;
         }
         return true;
     }
 
     #[cfg(feature = "validator")]
-    async fn process_next_request(
-        &self,
-        user_id: &String,
-        swarm: &mut Swarm<BecoBehaviour>,
-    ) {
+    async fn process_next_request(&self, user_id: &String, swarm: &mut Swarm<BecoBehaviour>) {
         let mut proposals_processing = self.proposals_processing.write().await;
         let mut proposal_queues = self.proposal_queues.write().await;
         if proposals_processing.get(user_id).is_none() {
@@ -786,17 +890,25 @@ impl P2P {
     async fn process_gossipsub(
         &self,
         message: gossipsub::Message,
-        swarm: &mut Swarm<BecoBehaviour>
+        swarm: &mut Swarm<BecoBehaviour>,
     ) {
-        let mut propose_request: ProcessRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
+        let mut propose_request: ProcessRequest =
+            serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
         match propose_request.status {
             DataRequestType::CORROBORATE => {
                 let response = self.entry.corroborate(&mut propose_request).await;
                 println!("{response:?}");
-            },
+            }
             DataRequestType::VALIDATED => {
                 let hash = calculate_hash(&propose_request.request);
-                let response = self.entry.update(propose_request.request, propose_request.calling_user, propose_request.user_id).await;
+                let response = self
+                    .entry
+                    .update(
+                        propose_request.request,
+                        propose_request.calling_user,
+                        propose_request.user_id,
+                    )
+                    .await;
                 println!("{response:?}");
                 if response.is_ok() {
                     self.entry.success_event(hash).await;
@@ -805,13 +917,13 @@ impl P2P {
                     self.entry.fail_event(hash).await;
                     self.entry.ping_event(&hash).await;
                 }
-            },
+            }
             DataRequestType::FAILED | DataRequestType::NOTFOUND => {
                 let hash = calculate_hash(&propose_request.request);
                 self.entry.fail_event(hash).await;
                 self.entry.ping_event(&hash).await;
-            },
-            _ => {},
+            }
+            _ => {}
         };
     }
 
@@ -821,9 +933,10 @@ impl P2P {
         message: gossipsub::Message,
         swarm: &mut Swarm<BecoBehaviour>,
     ) {
-        let mut propose_request: ProcessRequest = serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
+        let mut propose_request: ProcessRequest =
+            serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
         match propose_request.status {
-            _ => {},
+            _ => {}
         };
     }
 }

@@ -13,6 +13,7 @@ use crate::{
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
 
+#[cfg(not(feature = "orchestrator"))]
 #[derive(Debug, Clone)]
 pub struct User {
     pub id: Uuid,
@@ -22,6 +23,16 @@ pub struct User {
     linked_users: HashMap<String, PublicUser>,
     tx_p2p: Sender<Value>,
     tx_grpc: Sender<Value>,
+}
+
+#[cfg(feature = "orchestrator")]
+#[derive(Debug, Clone)]
+pub struct User {
+    pub id: Uuid,
+    pub user_details: UserDetails,
+    sequence: u64,
+    chain_accounts: HashMap<Blockchain, BlockchainCustody>,
+    linked_users: HashMap<String, PublicUser>,
 }
 
 impl User {
@@ -37,6 +48,7 @@ impl User {
         );
         chain_accounts
     }
+    #[cfg(not(feature = "orchestrator"))]
     pub fn new(first_name: Option<String>, tx_p2p: Sender<Value>, tx_grpc: Sender<Value>) -> Self {
         let id = Uuid::new_v4();
 
@@ -48,6 +60,19 @@ impl User {
             linked_users: HashMap::new(),
             tx_p2p,
             tx_grpc,
+        }
+    }
+
+    #[cfg(feature = "orchestrator")]
+    pub fn new(first_name: Option<String>) -> Self {
+        let id = Uuid::new_v4();
+
+        Self {
+            id: id.clone(),
+            chain_accounts: User::generate_default_chain_accounts(id.to_string()),
+            sequence: 0,
+            user_details: UserDetails::new(id.to_string(), first_name),
+            linked_users: HashMap::new(),
         }
     }
 

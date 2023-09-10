@@ -1,4 +1,7 @@
+#[cfg(not(feature = "rendezvous"))]
 use libp2p::{gossipsub, swarm::{NetworkBehaviour, keep_alive}, identify, ping, rendezvous};
+#[cfg(feature = "rendezvous")]
+use libp2p::{swarm::{NetworkBehaviour, keep_alive}, identify, ping, rendezvous};
 
 #[cfg(not(feature = "rendezvous"))]
 #[derive(NetworkBehaviour)]

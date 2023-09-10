@@ -2,7 +2,7 @@
 
 use uuid::Uuid;
 
-use crate::{permissioms::model::PermissionModel, user::public_user::PublicUser, enums::value_reference::ValueReference};
+use crate::{permissions::model::PermissionModel, user::public_user::PublicUser, enums::value_reference::ValueReference};
 
 #[test]
 fn create_new_permission_model() {

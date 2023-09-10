@@ -1,6 +1,6 @@
 use crate::{
     chain::chain_custody::PublicChainCustody, enums::value_reference::ValueReference,
-    permissioms::model::PermissionModel,
+    permissions::model::PermissionModel,
 };
 
 use super::public_user::PublicUser;

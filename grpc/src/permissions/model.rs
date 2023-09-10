@@ -70,7 +70,6 @@ where
     }
 
     pub async fn update(&mut self, value: T, calling_user: &PublicUser) -> Result<(), BecoError> {
-        println!("\n\n\n\nUpdating value");
         if !PermissionModel::is_owner_or_editor(&self, calling_user) {
             return Err(BecoError {
                 message: format!(

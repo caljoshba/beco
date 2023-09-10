@@ -9,28 +9,26 @@ mod errors;
 mod evm;
 mod implement;
 mod p2p;
-mod permissioms;
+mod permissions;
 mod proto;
 mod server;
-mod utils;
 mod traits;
 mod user;
+mod utils;
 mod xrpl;
 
 use entry::Entry;
 use futures::future::join;
 use p2p::P2P;
+use proto::beco::beco_server::BecoServer;
+use serde_json::Value;
+use server::BecoImplementation;
+use std::{env, sync::Arc};
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     OnceCell,
 };
 use tonic::transport::Server;
-
-use proto::beco::beco_server::BecoServer;
-use serde_json::Value;
-use server::BecoImplementation;
-
-use std::{env, sync::Arc};
 
 mod beco_proto {
     include!("proto/beco.rs");
@@ -40,7 +38,7 @@ mod beco_proto {
 }
 
 static ENTRY: OnceCell<Arc<Entry>> = OnceCell::const_new();
-
+#[cfg(feature = "grpc")]
 async fn get_entry(
     tx_p2p: Sender<Value>,
     tx_grpc: Sender<Value>,
@@ -50,7 +48,6 @@ async fn get_entry(
         .get_or_init(|| async { Arc::new(Entry::new(tx_p2p, tx_grpc, rx_grpc)) })
         .await
 }
-
 #[cfg(feature = "grpc")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,7 +61,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     };
 
-    let port: u16 = env::var("PORT").unwrap_or("9001".to_string()).parse::<u16>().unwrap();
+    let port: u16 = env::var("PORT")
+        .unwrap_or("9001".to_string())
+        .parse::<u16>()
+        .unwrap();
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
     let grpc_server = async move {
         let wallet = BecoImplementation::new(entry.clone());
@@ -82,15 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Serving grpc and p2p");
     let _ret = join(p2p_server, grpc_server).await;
-
-    Ok(())
-}
-
-#[cfg(any(feature = "validator", feature ="rendezvous"))]
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    
-    P2P::new().loop_swarm().await;
 
     Ok(())
 }

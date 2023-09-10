@@ -5,7 +5,7 @@ use tonic::Code;
 use crate::{
     enums::{blockchain::Blockchain, value_reference::ValueReference},
     errors::BecoError,
-    permissioms::model::PermissionModel,
+    permissions::model::PermissionModel,
     proto::beco::{AddAccountRequest, ChainResponse, WalletResponse},
     traits::value::Values,
     user::public_user::PublicUser,
