@@ -1,4 +1,3 @@
-
 #[cfg(feature = "sst")]
 use crate::{
     enums::data_value::DataRequests,
@@ -100,10 +99,7 @@ impl Entry {
         user_basic
     }
     #[cfg(not(feature = "sst"))]
-    pub async fn add_user(
-        &self,
-        request: AddUserRequest,
-    ) -> Result<GetUserResponse, BecoError> {
+    pub async fn add_user(&self, request: AddUserRequest) -> Result<GetUserResponse, BecoError> {
         let calling_user = {
             let users = self.users.read().await;
             self.get_public_user(
@@ -114,28 +110,39 @@ impl Entry {
             .await
         };
         let data_request = DataRequests::AddUser(request.clone());
-        let mut user_id: String = "".to_string();
         let hash = calculate_hash(&data_request);
         {
             self.create_event(hash.clone(), None).await;
         }
-        let signatures: HashSet<String> = HashSet::new();
-        let propose_request = ProcessRequest {
-            validated_signatures: signatures,
+        let process_request = ProcessRequest {
+            validated_signatures: HashSet::new(),
             failed_signatures: HashSet::new(),
             ignore_signatures: HashSet::new(),
             status: DataRequestType::NEW,
             request: data_request,
             calling_user: request.calling_user.clone(),
-            user_id: user_id.clone(),
+            user_id: "".to_string(),
             hash: hash,
             datetime: None,
             connected_peers: 0,
             originator_hash: Some(hash),
+            originator_peer_id: None,
         };
+        self.send_message_wait(&process_request, hash, &calling_user)
+            .await
+    }
+
+    #[cfg(not(feature = "sst"))]
+    async fn send_message_wait(
+        &self,
+        process_request: &ProcessRequest,
+        hash: u64,
+        calling_user: &PublicUser,
+    ) -> Result<GetUserResponse, BecoError> {
+        let mut user_id: String = "".to_string();
         let _ = self
             .tx_p2p
-            .send(serde_json::to_value(&propose_request).unwrap())
+            .send(serde_json::to_value(&process_request).unwrap())
             .await;
         let success = {
             if let Some(event) = self.events.read().await.get(&hash) {
@@ -149,7 +156,7 @@ impl Entry {
                 if let Some(user) = user_id_option.clone() {
                     user_id = user;
                 }
-                request_type == DataRequestType::RESPONSE && user_id_option.is_some()
+                request_type != DataRequestType::FAILED && user_id_option.is_some()
             } else {
                 false
             }
@@ -159,14 +166,13 @@ impl Entry {
             self.remove_event(&hash).await;
         }
         let users = self.users.read().await;
-        let user_option = users.get(&user_id);
-
         if success {
+            let user_option = users.get(&user_id);
             Ok(user_option
                 .unwrap()
                 .read()
                 .await
-                .as_public_user(&calling_user)
+                .as_public_user(calling_user)
                 .into())
         } else {
             Err(BecoError {
@@ -386,7 +392,6 @@ impl Entry {
             .await;
         let user_option = users.get(&request.user_id);
         if user_option.is_none() {
-            request.ignore_signatures.insert("Hi".into());
             request.status = DataRequestType::IGNORED;
             let send_result = self
                 .tx_p2p
@@ -399,14 +404,12 @@ impl Entry {
             .await;
 
         if result.is_err() {
-            request.failed_signatures.insert("Hi2".into());
             request.status = DataRequestType::INVALID;
             let send_result = self
                 .tx_p2p
                 .send(serde_json::to_value(&request).unwrap())
                 .await;
         } else {
-            request.validated_signatures.insert("Hi2".into());
             request.status = DataRequestType::VALID;
             let send_result = self
                 .tx_p2p
@@ -421,31 +424,36 @@ impl Entry {
         calling_user_id: String,
         user_id: String,
     ) -> Result<GetUserResponse, BecoError> {
-        let users = &self.users.read().await;
-        let calling_user = self
-            .get_public_user(
-                &users.get(&calling_user_id),
-                calling_user_id.clone(),
-                calling_user_id.clone(),
-            )
-            .await;
-        let user = self
-            .get_public_user(
-                &users.get(&user_id),
-                user_id.clone(),
-                calling_user_id.clone(),
-            )
-            .await;
-        let user_option = users.get(&user_id);
-        if user_option.is_none() {
-            return Err(BecoError {
-                message: BAD_ACCOUNT.to_string(),
-                status: Code::NotFound,
-            });
-        }
-        let result = self
-            .propose_value(&user_option, data_request.clone(), &calling_user)
-            .await;
+        let (calling_user, result) = {
+            let users = &self.users.read().await;
+            let calling_user = self
+                .get_public_user(
+                    &users.get(&calling_user_id),
+                    calling_user_id.clone(),
+                    calling_user_id.clone(),
+                )
+                .await;
+            let user = self
+                .get_public_user(
+                    &users.get(&user_id),
+                    user_id.clone(),
+                    calling_user_id.clone(),
+                )
+                .await;
+            let user_option = users.get(&user_id);
+
+            let result: Result<(), BecoError> = if user_option.is_none() {
+                return Err(BecoError {
+                    message: BAD_ACCOUNT.to_string(),
+                    status: Code::NotFound,
+                });
+            } else {
+                self.propose_value(&user_option, data_request.clone(), &calling_user)
+                    .await
+            };
+
+            (calling_user, result)
+        };
 
         if result.is_err() {
             Err(result.unwrap_err())
@@ -455,10 +463,8 @@ impl Entry {
                 self.create_event(hash.clone(), Some(user_id.clone())).await;
             }
 
-            let mut signatures: HashSet<String> = HashSet::new();
-            signatures.insert("Me".into());
-            let propose_request = ProcessRequest {
-                validated_signatures: signatures,
+            let process_request = ProcessRequest {
+                validated_signatures: HashSet::new(),
                 failed_signatures: HashSet::new(),
                 ignore_signatures: HashSet::new(),
                 status: DataRequestType::PROPOSE,
@@ -469,43 +475,10 @@ impl Entry {
                 datetime: None,
                 connected_peers: 0,
                 originator_hash: None,
+                originator_peer_id: None,
             };
-            let _ = self
-                .tx_p2p
-                .send(serde_json::to_value(&propose_request).unwrap())
-                .await;
-            let success = {
-                if let Some(event) = self.events.read().await.get(&hash) {
-                    event.listen().await;
-                }
-                let completion_loops = self.completion_loops.read().await;
-                let completion_option = completion_loops.get(&hash);
-
-                if let Some(completion) = completion_option {
-                    let result = completion.await;
-                    result.0 == DataRequestType::VALIDATED
-                } else {
-                    false
-                }
-            };
-
-            {
-                self.remove_event(&hash).await;
-            }
-
-            if success {
-                Ok(user_option
-                    .unwrap()
-                    .read()
-                    .await
-                    .as_public_user(&calling_user)
-                    .into())
-            } else {
-                Err(BecoError {
-                    message: "Failed to validate the request within 5 seconds".into(),
-                    status: Code::DeadlineExceeded,
-                })
-            }
+            self.send_message_wait(&process_request, hash, &calling_user)
+                .await
         }
     }
 

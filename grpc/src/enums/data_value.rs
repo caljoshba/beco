@@ -35,6 +35,7 @@ pub struct ProcessRequest {
     pub datetime: Option<DateTime<Utc>>,
     pub connected_peers: usize,
     pub originator_hash: Option<u64>,
+    pub originator_peer_id: Option<String>,
 }
 
 impl Hash for ProcessRequest {

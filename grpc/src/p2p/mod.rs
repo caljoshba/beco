@@ -93,7 +93,7 @@ static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWMqZeoA7toQCJ9tXDa1FPTHEoWGz2J7ACAdLSQmuC4ZBe"
+            "12D3KooWGuC7iJJtcvH9NwnnZ5urrW4Sxgi2WzD5jTX3d4mgWPhs"
                 .parse()
                 .unwrap()
         })
@@ -199,7 +199,6 @@ impl P2P {
 
     #[cfg(feature = "sst")]
     pub fn new() -> Self {
-
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
         let entry = Entry::new();
@@ -503,7 +502,14 @@ impl P2P {
         loop {
             tokio::select! {
                 Some(message) = self.rx_p2p.recv() => {
-                    let request: ProcessRequest = serde_json::from_value(message.clone()).unwrap();
+                    let mut request: ProcessRequest = serde_json::from_value(message.clone()).unwrap();
+                    request.originator_peer_id = Some(self.peer_id.to_string());
+                    match request.status {
+                        DataRequestType::IGNORED => { request.ignore_signatures.insert("me".into()); },
+                        DataRequestType::INVALID => { request.failed_signatures.insert("me".into()); },
+                        DataRequestType::VALID => { request.validated_signatures.insert("me".into()); },
+                        _ => {},
+                    };
                     let gossip_sub = match request.status {
                         DataRequestType::PROPOSE => { &self.propose_gossip_sub },
                         DataRequestType::CORROBORATE => { &self.corroborate_gossip_sub },
@@ -520,7 +526,7 @@ impl P2P {
                     if let Err(e) = swarm
                         .behaviour_mut()
                         .gossipsub
-                        .publish(gossip_sub.clone(), serde_json::to_vec(&message).unwrap())
+                        .publish(gossip_sub.clone(), serde_json::to_vec(&request).unwrap())
                     {
                         println!("Publish error: {e:?}");
                     }
@@ -756,19 +762,19 @@ impl P2P {
         message: gossipsub::Message,
         swarm: &mut Swarm<BecoBehaviour>,
     ) {
-        let mut propose_request: ProcessRequest =
+        let mut process_request: ProcessRequest =
             serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
-        match propose_request.status {
+        match process_request.status {
             DataRequestType::PROPOSE => {
                 let datetime = Utc::now();
-                propose_request.datetime = Some(datetime);
+                process_request.datetime = Some(datetime);
 
-                let hash = calculate_hash(&propose_request);
-                propose_request.hash = hash;
-                propose_request.status = DataRequestType::CORROBORATE;
+                let hash = calculate_hash(&process_request);
+                process_request.hash = hash;
+                process_request.status = DataRequestType::CORROBORATE;
 
                 let connections: usize = swarm.connected_peers().count();
-                propose_request.connected_peers = if connections > 1 {
+                process_request.connected_peers = if connections > 1 {
                     connections - 1
                 } else {
                     connections.clone()
@@ -777,44 +783,44 @@ impl P2P {
                 let required_signatures = 1;
                 {
                     let proposal_queue = &mut self.proposal_queues.write().await;
-                    if let Some(user_queue) = proposal_queue.get_mut(&propose_request.user_id) {
-                        user_queue.write().await.push(propose_request.clone());
+                    if let Some(user_queue) = proposal_queue.get_mut(&process_request.user_id) {
+                        user_queue.write().await.push(process_request.clone());
                     } else {
                         proposal_queue.insert(
-                            propose_request.user_id.clone(),
-                            RwLock::new(vec![propose_request.clone()]),
+                            process_request.user_id.clone(),
+                            RwLock::new(vec![process_request.clone()]),
                         );
                     }
                 }
-                self.process_next_request(&propose_request.user_id, swarm)
+                self.process_next_request(&process_request.user_id, swarm)
                     .await;
             }
             DataRequestType::VALID | DataRequestType::INVALID | DataRequestType::IGNORED => {
-                let hash = calculate_hash(&propose_request);
+                let hash = calculate_hash(&process_request);
                 {
                     let proposals_processing = &mut self.proposals_processing.write().await;
-                    if let Some(request) = proposals_processing.get_mut(&propose_request.user_id) {
+                    if let Some(request) = proposals_processing.get_mut(&process_request.user_id) {
                         if request.hash != hash {
                             return;
                         }
-                        for signature in propose_request.validated_signatures.iter() {
+                        for signature in process_request.validated_signatures.iter() {
                             request.validated_signatures.insert(signature.clone());
                         }
-                        for signature in propose_request.failed_signatures.iter() {
+                        for signature in process_request.failed_signatures.iter() {
                             request.failed_signatures.insert(signature.clone());
                         }
-                        for signature in propose_request.ignore_signatures.iter() {
+                        for signature in process_request.ignore_signatures.iter() {
                             request.ignore_signatures.insert(signature.clone());
                         }
                     } else {
-                        propose_request.status = DataRequestType::NOTFOUND;
+                        process_request.status = DataRequestType::NOTFOUND;
                         let _ = swarm.behaviour_mut().gossipsub.publish(
                             self.corroborate_gossip_sub.clone(),
-                            serde_json::to_vec(&propose_request).unwrap(),
+                            serde_json::to_vec(&process_request).unwrap(),
                         );
                     }
                 };
-                self.check_if_validated(&mut propose_request, swarm, hash)
+                self.check_if_validated(&mut process_request, swarm, hash)
                     .await;
             }
             _ => {}
@@ -824,13 +830,13 @@ impl P2P {
     #[cfg(feature = "validator")]
     async fn check_if_validated(
         &self,
-        propose_request: &mut ProcessRequest,
+        process_request: &mut ProcessRequest,
         swarm: &mut Swarm<BecoBehaviour>,
         hash: u64,
     ) -> bool {
         let processed = {
             let proposals_processing = &mut self.proposals_processing.write().await;
-            if let Some(queued_request) = proposals_processing.get_mut(&propose_request.user_id) {
+            if let Some(queued_request) = proposals_processing.get_mut(&process_request.user_id) {
                 let validated_signatures_len = queued_request.validated_signatures.len();
                 let validated_signatures_threshold = ((queued_request.connected_peers
                     - queued_request.ignore_signatures.len())
@@ -880,9 +886,9 @@ impl P2P {
                 self.proposals_processing
                     .write()
                     .await
-                    .remove(&propose_request.user_id);
+                    .remove(&process_request.user_id);
             }
-            self.process_next_request(&propose_request.user_id, swarm)
+            self.process_next_request(&process_request.user_id, swarm)
                 .await;
         }
         processed
@@ -943,57 +949,62 @@ impl P2P {
     ) {
         use crate::enums::data_value::DataRequests;
 
-        let mut propose_request: ProcessRequest =
+        let mut process_request: ProcessRequest =
             serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
-        match propose_request.status {
+        match process_request.status {
             DataRequestType::CORROBORATE => {
-                let response = self.entry.corroborate(&mut propose_request).await;
+                let response = self.entry.corroborate(&mut process_request).await;
                 println!("{response:?}");
             }
             DataRequestType::VALIDATED => {
-                let hash = calculate_hash(&propose_request.request);
+                let hash = calculate_hash(&process_request.request);
                 let response = self
                     .entry
                     .update(
-                        propose_request.request,
-                        propose_request.calling_user,
-                        propose_request.user_id.clone(),
+                        process_request.request,
+                        process_request.calling_user,
+                        process_request.user_id.clone(),
                     )
                     .await;
                 println!("{response:?}");
                 if response.is_ok() {
                     self.entry
-                        .success_event(hash, Some(propose_request.user_id), propose_request.status)
+                        .success_event(hash, Some(process_request.user_id), process_request.status)
                         .await;
                     self.entry.ping_event(&hash).await;
                 } else {
                     self.entry
-                        .fail_event(hash, Some(propose_request.user_id))
+                        .fail_event(hash, Some(process_request.user_id))
                         .await;
                     self.entry.ping_event(&hash).await;
                 }
             }
             DataRequestType::FAILED | DataRequestType::NOTFOUND => {
-                let hash = calculate_hash(&propose_request.request);
+                let hash = calculate_hash(&process_request.request);
                 self.entry
-                    .fail_event(hash, Some(propose_request.user_id))
+                    .fail_event(hash, Some(process_request.user_id))
                     .await;
                 self.entry.ping_event(&hash).await;
             }
             DataRequestType::RESPONSE => {
-                if propose_request.originator_hash.is_none() {
+                if process_request.originator_hash.is_none()
+                    || process_request.originator_peer_id.is_none()
+                    || process_request.originator_peer_id.unwrap() != self.peer_id.to_string()
+                {
+                    println!("not the same originator");
                     return;
                 }
-                let hash = propose_request.originator_hash.unwrap();
-                match propose_request.request {
+                let hash = process_request.originator_hash.unwrap();
+                match process_request.request {
                     DataRequests::LoadUser(user) => {
                         self.entry.load_user(user.clone()).await;
-                        self.entry.success_event(hash, Some(user.id), propose_request.status).await;
+                        self.entry
+                            .success_event(hash, Some(user.id), process_request.status)
+                            .await;
                         self.entry.ping_event(&hash).await;
-                    },
+                    }
                     _ => {}
-                }               
-
+                }
             }
             _ => {}
         };
@@ -1011,12 +1022,12 @@ impl P2P {
 
         use crate::{enums::data_value::DataRequests, utils::calculate_hash};
 
-        let propose_request: ProcessRequest =
+        let process_request: ProcessRequest =
             serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
-        match propose_request.status {
-            DataRequestType::NEW => match propose_request.request {
+        match process_request.status {
+            DataRequestType::NEW => match process_request.request {
                 DataRequests::AddUser(request) => {
-                    let (user, _ ) = self.entry.add_user(request).await;
+                    let (user, _) = self.entry.add_user(request).await;
                     let data_request = DataRequests::LoadUser(user.clone());
                     let hash = calculate_hash(&data_request);
                     let load_request = ProcessRequest {
@@ -1025,23 +1036,24 @@ impl P2P {
                         ignore_signatures: HashSet::new(),
                         status: DataRequestType::RESPONSE,
                         request: data_request,
-                        calling_user: propose_request.calling_user,
+                        calling_user: process_request.calling_user,
                         user_id: user.id,
                         hash,
                         datetime: Some(Utc::now()),
                         connected_peers: 0,
-                        originator_hash: propose_request.originator_hash,
+                        originator_hash: process_request.originator_hash,
+                        originator_peer_id: process_request.originator_peer_id,
                     };
                     let result = swarm.behaviour_mut().gossipsub.publish(
                         self.response_gossip_sub.clone(),
                         serde_json::to_vec(&load_request).unwrap(),
                     );
-            
+
                     if let Err(e) = result {
                         println!("Error pusblishing message: {e:?}");
                     }
                 }
-                _ => {},
+                _ => {}
             },
             _ => {}
         };
