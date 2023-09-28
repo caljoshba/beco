@@ -1,38 +1,53 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use tonic::Code;
 use uuid::Uuid;
+use std::hash::Hash;
 
 use crate::{
     chain::chain_custody::{ChainCustody, PublicChainCustody},
     enums::blockchain::{Blockchain, BlockchainCustody},
     errors::BecoError,
+    proto::beco::AddAccountRequest,
     traits::key::Key,
-    user::{public_user::PublicUser, user_details::UserDetails}, proto::beco::AddAccountRequest,
+    user::{public_user::PublicUser, user_details::UserDetails},
 };
-use serde_json::Value;
-use tokio::sync::mpsc::Sender;
 
-#[cfg(not(feature = "orchestrator"))]
-#[derive(Debug, Clone)]
+#[cfg(not(feature = "sst"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
-    pub id: Uuid,
+    pub id: String,
     pub user_details: UserDetails,
     sequence: u64,
     chain_accounts: HashMap<Blockchain, BlockchainCustody>,
     linked_users: HashMap<String, PublicUser>,
-    tx_p2p: Sender<Value>,
-    tx_grpc: Sender<Value>,
 }
 
-#[cfg(feature = "orchestrator")]
-#[derive(Debug, Clone)]
+#[cfg(feature = "sst")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
-    pub id: Uuid,
+    pub id: String,
     pub user_details: UserDetails,
     sequence: u64,
     chain_accounts: HashMap<Blockchain, BlockchainCustody>,
     linked_users: HashMap<String, PublicUser>,
+}
+
+impl Hash for User {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.user_details.hash(state);
+        self.sequence.hash(state);
+        self.chain_accounts.iter().for_each(|(&blockchain, custody)| {
+            blockchain.hash(state);
+            custody.hash(state);
+        });
+        self.linked_users.iter().for_each(|(user_id, public_user)| {
+            user_id.hash(state);
+            public_user.hash(state);
+        });
+    }
 }
 
 impl User {
@@ -48,9 +63,9 @@ impl User {
         );
         chain_accounts
     }
-    #[cfg(not(feature = "orchestrator"))]
-    pub fn new(first_name: Option<String>, tx_p2p: Sender<Value>, tx_grpc: Sender<Value>) -> Self {
-        let id = Uuid::new_v4();
+    #[cfg(not(feature = "sst"))]
+    pub fn new(first_name: Option<String>) -> Self {
+        let id = Uuid::new_v4().to_string();
 
         Self {
             id: id.clone(),
@@ -58,14 +73,12 @@ impl User {
             sequence: 0,
             user_details: UserDetails::new(id.to_string(), first_name),
             linked_users: HashMap::new(),
-            tx_p2p,
-            tx_grpc,
         }
     }
 
-    #[cfg(feature = "orchestrator")]
+    #[cfg(feature = "sst")]
     pub fn new(first_name: Option<String>) -> Self {
-        let id = Uuid::new_v4();
+        let id = Uuid::new_v4().to_string();
 
         Self {
             id: id.clone(),
@@ -112,7 +125,9 @@ impl User {
             BlockchainCustody::XRPL(xrpl_accounts) => {
                 xrpl_accounts.create(None, request, calling_user)
             }
-            BlockchainCustody::EVM(evm_accounts) => evm_accounts.create(None, request, calling_user),
+            BlockchainCustody::EVM(evm_accounts) => {
+                evm_accounts.create(None, request, calling_user)
+            }
         }
     }
 
@@ -130,9 +145,7 @@ impl User {
             });
         }
         match accounts_option.unwrap() {
-            BlockchainCustody::XRPL(xrpl_accounts) => {
-                xrpl_accounts.propose(request, calling_user)
-            }
+            BlockchainCustody::XRPL(xrpl_accounts) => xrpl_accounts.propose(request, calling_user),
             BlockchainCustody::EVM(evm_accounts) => evm_accounts.propose(request, calling_user),
         }
     }

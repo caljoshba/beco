@@ -1,5 +1,6 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{fmt::Debug, marker::PhantomData, hash::Hash};
 
+use serde::{Serialize, Deserialize};
 use tonic::Code;
 
 use crate::{
@@ -10,10 +11,10 @@ use crate::{
     traits::value::Values,
     user::public_user::PublicUser,
 };
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct ChainCustody<T, A>
 where
-    T: Values<A> + Clone + Debug + Into<PublicKey>,
+    T: Values<A> + Clone + Debug + Into<PublicKey> + Hash,
 {
     pub chain: Blockchain,
     pub keys: PermissionModel<Vec<T>>,
@@ -22,7 +23,7 @@ where
 
 impl<T, A> ChainCustody<T, A>
 where
-    T: Values<A> + Clone + Debug + Into<PublicKey>,
+    T: Values<A> + Clone + Debug + Into<PublicKey> + Hash,
 {
     pub fn new(chain: Blockchain, owner_id: String) -> Self {
         Self {
@@ -71,7 +72,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct PublicKey {
     pub alias: String,
     pub address: String,
@@ -83,7 +84,7 @@ impl Into<WalletResponse> for PublicKey {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct PublicChainCustody {
     pub chain: Blockchain,
     pub keys: Vec<PublicKey>,

@@ -30,10 +30,10 @@ enum Blockchain {
 }
 
 message AddAccountRequest {
-    Blockchain blockchain = 1;
-    string alias = 2;
-    string user_id = 3;
-    string calling_user = 4;
+    string user_id = 1;
+    string calling_user = 2;
+    Blockchain blockchain = 3;
+    string alias = 4;
 }
 
 message ListAccountResponse {
@@ -52,7 +52,8 @@ message WalletResponse {
 }
 
 message AddUserRequest {
-    optional string name = 1;
+    string calling_user = 2;
+    string name = 3;
 }
 
 message GetUserResponse {
@@ -73,8 +74,8 @@ message ListUserResponse {
 }
 
 message ModifyLinkedUserRequest {
-    string calling_user = 1;
-    string user_id = 2;
+    string user_id = 1;
+    string calling_user = 2;
 }
 
 message ModifyNameRequest {

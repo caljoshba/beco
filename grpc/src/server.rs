@@ -28,8 +28,11 @@ impl Beco for BecoImplementation {
         request: Request<AddUserRequest>,
     ) -> Result<Response<GetUserResponse>, Status> {
         let inner_request = request.into_inner();
-        let calling_user = self.entry.add_user(inner_request).await;
-        Ok(Response::new(calling_user.into()))
+        let result = self.entry.add_user(inner_request).await;
+        if let Err(err) = result {
+            return Err(Status::new(err.status, err.message));
+        }
+        Ok(Response::new(result.unwrap()))
     }
 
     async fn list_user(

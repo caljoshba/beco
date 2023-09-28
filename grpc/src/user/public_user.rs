@@ -1,6 +1,8 @@
+use serde::{Serialize, Deserialize};
+
 use crate::{chain::chain_custody::PublicChainCustody, proto::beco::GetUserResponse};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct PublicUser {
     pub id: String,
     pub first_name: Option<String>,

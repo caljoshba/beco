@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-name = "server"
+name = "grpc"
 path = "src/grpc.rs"
 required-features = ["grpc"]
 
@@ -15,10 +15,11 @@ name = "validator"
 path = "src/validator.rs"
 required-features = ["validator"]
 
+# sst - Single Source of Truth
 [[bin]]
-name = "orchestrator"
-path = "src/orchestrator.rs"
-required-features = ["orchestrator"]
+name = "sst"
+path = "src/sst.rs"
+required-features = ["sst"]
 
 [[bin]]
 name = "rendezvous"
@@ -29,7 +30,7 @@ required-features = ["rendezvous"]
 # default = ["grpc"]
 grpc = []
 validator = []
-orchestrator = []
+sst = []
 rendezvous = []
 
 [dependencies]
@@ -48,7 +49,7 @@ either = { version = "1.9.0" }
 futures = { version = "0.3.28" }
 serde_json = { version = "1.0.105", features = [ "std" ] }
 serde = { version = "1.0.187", features = [ "derive" ] }
-event-listener = { version = "2.5.3" }
+event-listener = { version = "3.0.0" }
 chrono = { version = "0.4.26", features = [ "serde" ]}
 void = { version = "1.0.2" }
 rs_merkle = { version = "1.4.1" }

@@ -6,19 +6,19 @@
     "rust-analyzer.cargo.cfgs": {
         "grpc": true
         // "validator": true
-        // "orchestrator": true
+        // "sst": true
         // "rendezvous": true
     },
     "rust-analyzer.cargo.features": [
         "grpc"
         // "validator"
-        // "orchestrator"
+        // "sst"
         // "rendezvous"
     ],
     "rust-analyzer.check.features": [
         "grpc"
         // "validator"
-        // "orchestrator"
+        // "sst"
         // "rendezvous"
     ],
     "rust-analyzer.diagnostics.disabled": [
@@ -27,5 +27,6 @@
     "rust-analyzer.cargo.unsetTest": [
         "core"
     ],
-    "rust-analyzer.check.allTargets": false
+    "rust-analyzer.check.allTargets": false,
+    "files.exclude": {}
 }

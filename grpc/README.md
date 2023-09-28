@@ -18,8 +18,10 @@ https://github.com/libp2p/rust-libp2p/blob/master/examples/rendezvous/src/main.r
 https://github.com/libp2p/specs/blob/master/rendezvous/README.md
 
 
-cargo run --release --bin server --features="grpc"
-PORT=9002 P2P=7001 cargo run --release --bin server --features="grpc"
-PEER=/ip4/127.0.0.1/tcp/38743 cargo run --release --bin validator --features="validator"
-P2P=7003 cargo run --release --bin validator --features="validator"
 cargo run --release --bin rendezvous --features="rendezvous"
+cargo run --release --bin grpc --features="grpc"
+P2P=7003 cargo run --release --bin validator --features="validator"
+P2P=7004 cargo run --release --bin sst --features="sst"
+
+
+PORT=9002 P2P=7001 cargo run --release --bin grpc --features="grpc"

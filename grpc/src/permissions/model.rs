@@ -1,15 +1,17 @@
 use std::fmt::Debug;
 
+use serde::{Serialize, Deserialize};
 use tonic::Code;
+use std::hash::Hash;
 
 use crate::{
     enums::value_reference::ValueReference, errors::BecoError, user::public_user::PublicUser,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionModel<T>
 where
-    T: Clone + Debug,
+    T: Clone + Debug + Hash,
 {
     owner_id: String,
     editors: Vec<PublicUser>,
@@ -19,9 +21,22 @@ where
     reference: ValueReference,
 }
 
+impl<T> Hash for PermissionModel<T>
+where
+    T: Clone + Debug + Hash, {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.owner_id.hash(state);
+        self.editors.hash(state);
+        self.viewers.hash(state);
+        self.value.hash(state);
+        self.key.hash(state);
+        self.reference.hash(state);
+    }
+}
+
 impl<T> PermissionModel<T>
 where
-    T: Clone + Debug,
+    T: Clone + Debug + Hash,
 {
     pub fn new(owner_id: String, value: T, key: String, reference: ValueReference) -> Self {
         Self {

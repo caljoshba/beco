@@ -1,3 +1,5 @@
+use serde::{Serialize, Deserialize};
+
 use crate::{
     chain::chain_custody::{ChainCustody, PublicKey},
     enums::cypto_algortihms::EVMAlgortithm,
@@ -6,13 +8,13 @@ use crate::{
     user::public_user::PublicUser, proto::beco::AddAccountRequest,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct EVMKeyValues {
     pub public_key: String,
     pub alias: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct EVMKey {
     public_key: String,
     private_key: String,

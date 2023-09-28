@@ -1,3 +1,6 @@
+use serde::{Serialize, Deserialize};
+use std::hash::Hash;
+
 use crate::{
     chain::chain_custody::PublicChainCustody, enums::value_reference::ValueReference,
     permissions::model::PermissionModel,
@@ -5,12 +8,21 @@ use crate::{
 
 use super::public_user::PublicUser;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserDetails {
     pub id: String,
     pub first_name: PermissionModel<Option<String>>,
     pub other_names: PermissionModel<Option<Vec<String>>>,
     pub last_name: PermissionModel<Option<String>>,
+}
+
+impl Hash for UserDetails {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.first_name.hash(state);
+        self.other_names.hash(state);
+        self.last_name.hash(state);
+    }
 }
 
 impl UserDetails {

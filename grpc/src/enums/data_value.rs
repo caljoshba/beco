@@ -6,7 +6,7 @@ use serde::{
 };
 use strum::{Display, EnumString};
 
-use crate::proto::beco::{AddAccountRequest, ModifyNameRequest, ModifyOtherNamesRequest};
+use crate::{proto::beco::{AddAccountRequest, ModifyNameRequest, ModifyOtherNamesRequest, AddUserRequest}, user::user::User};
 
 #[derive(Debug, Clone, Display, EnumString, Eq, PartialEq)]
 pub enum DataValue {
@@ -34,6 +34,7 @@ pub struct ProcessRequest {
     pub hash: u64,
     pub datetime: Option<DateTime<Utc>>,
     pub connected_peers: usize,
+    pub originator_hash: Option<u64>,
 }
 
 impl Hash for ProcessRequest {
@@ -63,6 +64,10 @@ pub enum DataRequestType {
     LOAD,
     #[strum(serialize = "NOT_FOUND")]
     NOTFOUND,
+    #[strum(serialize = "NEW")]
+    NEW,
+    #[strum(serialize = "RESPONSE")]
+    RESPONSE,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
@@ -71,6 +76,8 @@ pub enum DataRequests {
     OtherNames(ModifyOtherNamesRequest),
     LastName(ModifyNameRequest),
     AddAccount(AddAccountRequest),
+    AddUser(AddUserRequest),
+    LoadUser(User),
     // AddLinkedUser(ModifyLinkedUserRequest),
     // RemoveLinkedUser(ModifyLinkedUserRequest),
 }

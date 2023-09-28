@@ -1,3 +1,4 @@
+use serde::{Serialize, Deserialize};
 use strum::{Display, EnumString};
 
 use crate::{
@@ -8,7 +9,7 @@ use crate::{
     xrpl::{XRPLKey, XRPLKeyValues},
 };
 
-#[derive(Debug, Clone, Display, EnumString, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Display, EnumString, Eq, PartialEq, Hash, Serialize, Deserialize, Copy)]
 pub enum Blockchain {
     #[strum(serialize = "UNSPECIFIED")]
     UNSPECIFIED,
@@ -48,7 +49,7 @@ impl Into<i32> for Blockchain {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub enum BlockchainCustody {
     XRPL(ChainCustody<XRPLKey, XRPLKeyValues>),
     EVM(ChainCustody<EVMKey, EVMKeyValues>),

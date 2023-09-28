@@ -1,14 +1,15 @@
-use std::{collections::{HashMap, HashSet}, sync::Arc, time::Duration};
 
-use event_listener::Event;
-// use event_listener::Event;
-use serde_json::Value;
-use tokio::sync::{
-    mpsc::{Receiver, Sender},
-    RwLock,
+#[cfg(feature = "sst")]
+use crate::{
+    enums::data_value::DataRequests,
+    errors::BecoError,
+    proto::beco::{
+        AddAccountRequest, AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse,
+        ModifyLinkedUserRequest,
+    },
+    user::{public_user::PublicUser, user::User},
 };
-use tonic::Code;
-
+#[cfg(not(feature = "sst"))]
 use crate::{
     enums::data_value::{DataRequestType, DataRequests, ProcessRequest},
     errors::BecoError,
@@ -16,14 +17,38 @@ use crate::{
         AddAccountRequest, AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse,
         ModifyLinkedUserRequest,
     },
-    user::{public_user::PublicUser, user::User}, utils::{ProposeEvent, calculate_hash},
+    user::{public_user::PublicUser, user::User},
+    utils::{calculate_hash, ProposeEvent},
 };
+#[cfg(not(feature = "sst"))]
+use event_listener::Event;
+#[cfg(not(feature = "sst"))]
+use serde_json::Value;
+#[cfg(feature = "sst")]
+use std::{collections::HashMap, sync::Arc};
+#[cfg(not(feature = "sst"))]
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
+#[cfg(feature = "sst")]
+use tokio::sync::RwLock;
+#[cfg(not(feature = "sst"))]
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    RwLock,
+};
+#[cfg(not(feature = "sst"))]
+use tonic::Code;
+#[cfg(feature = "sst")]
+use tonic::Code;
 
 const BAD_BLOCKCHAIN: &str = "Invalid Blockchain value provided";
 const BAD_ACCOUNT: &str = "No matching account found";
 const NOT_AUTH: &str = "Not authorised to perform this action";
 
-#[cfg(not(feature = "orchestrator"))]
+#[cfg(not(feature = "sst"))]
 #[derive(Debug)]
 pub struct Entry {
     users: Arc<RwLock<HashMap<String, RwLock<User>>>>,
@@ -35,14 +60,14 @@ pub struct Entry {
     // add a timeout queue that the p2p side can check - just an Instant::now() thing rather than a future so it can be checked multiple times
 }
 
-#[cfg(feature = "orchestrator")]
+#[cfg(feature = "sst")]
 #[derive(Debug)]
 pub struct Entry {
     users: Arc<RwLock<HashMap<String, RwLock<User>>>>,
 }
 
 impl Entry {
-    #[cfg(not(feature = "orchestrator"))]
+    #[cfg(not(feature = "sst"))]
     pub fn new(tx_p2p: Sender<Value>, tx_grpc: Sender<Value>, rx_grpc: Receiver<Value>) -> Self {
         Self {
             users: Arc::new(RwLock::new(HashMap::new())),
@@ -53,7 +78,7 @@ impl Entry {
             events: RwLock::new(HashMap::new()),
         }
     }
-    #[cfg(feature = "orchestrator")]
+    #[cfg(feature = "sst")]
     pub fn new() -> Self {
         Self {
             users: Arc::new(RwLock::new(HashMap::new())),
@@ -74,24 +99,88 @@ impl Entry {
         }
         user_basic
     }
-    #[cfg(not(feature = "orchestrator"))]
-    pub async fn add_user(&self, request: AddUserRequest) -> GetUserResponse {
-        let user = User::new(request.name, self.tx_p2p.clone(), self.tx_grpc.clone());
-        let mut users = self.users.write().await;
-        users.insert(user.id.to_string(), RwLock::new(user.clone()));
-        let calling_user = self
-            .get_public_user(
-                &users.get(&user.id.to_string()),
-                user.id.to_string(),
-                user.id.to_string(),
+    #[cfg(not(feature = "sst"))]
+    pub async fn add_user(
+        &self,
+        request: AddUserRequest,
+    ) -> Result<GetUserResponse, BecoError> {
+        let calling_user = {
+            let users = self.users.read().await;
+            self.get_public_user(
+                &users.get(&request.calling_user),
+                request.calling_user.clone(),
+                request.calling_user.clone(),
             )
+            .await
+        };
+        let data_request = DataRequests::AddUser(request.clone());
+        let mut user_id: String = "".to_string();
+        let hash = calculate_hash(&data_request);
+        {
+            self.create_event(hash.clone(), None).await;
+        }
+        let signatures: HashSet<String> = HashSet::new();
+        let propose_request = ProcessRequest {
+            validated_signatures: signatures,
+            failed_signatures: HashSet::new(),
+            ignore_signatures: HashSet::new(),
+            status: DataRequestType::NEW,
+            request: data_request,
+            calling_user: request.calling_user.clone(),
+            user_id: user_id.clone(),
+            hash: hash,
+            datetime: None,
+            connected_peers: 0,
+            originator_hash: Some(hash),
+        };
+        let _ = self
+            .tx_p2p
+            .send(serde_json::to_value(&propose_request).unwrap())
             .await;
-        calling_user.into()
+        let success = {
+            if let Some(event) = self.events.read().await.get(&hash) {
+                event.listen().await;
+            }
+
+            let completion_loops = self.completion_loops.read().await;
+            let completion_option = completion_loops.get(&hash);
+            if let Some(completion) = completion_option {
+                let (request_type, user_id_option) = completion.await;
+                if let Some(user) = user_id_option.clone() {
+                    user_id = user;
+                }
+                request_type == DataRequestType::RESPONSE && user_id_option.is_some()
+            } else {
+                false
+            }
+        };
+
+        {
+            self.remove_event(&hash).await;
+        }
+        let users = self.users.read().await;
+        let user_option = users.get(&user_id);
+
+        if success {
+            Ok(user_option
+                .unwrap()
+                .read()
+                .await
+                .as_public_user(&calling_user)
+                .into())
+        } else {
+            Err(BecoError {
+                message: "Failed to validate the request within 5 seconds".into(),
+                status: Code::DeadlineExceeded,
+            })
+        }
     }
 
-    #[cfg(feature = "orchestrator")]
-    pub async fn add_user(&self, request: AddUserRequest) -> User {
-        let user = User::new(request.name);
+    #[cfg(feature = "sst")]
+    pub async fn add_user(&self, request: AddUserRequest) -> (User, PublicUser) {
+        // need to implement a check to see if they exist first
+        // need something like the national insurance number for this
+        let user = User::new(Some(request.name));
         let mut users = self.users.write().await;
         users.insert(user.id.to_string(), RwLock::new(user.clone()));
         let calling_user = self
@@ -101,7 +190,13 @@ impl Entry {
                 user.id.to_string(),
             )
             .await;
-        user
+        (user, calling_user)
+    }
+
+    #[cfg(not(feature = "sst"))]
+    pub async fn load_user(&self, user: User) {
+        let users = &mut self.users.write().await;
+        users.insert(user.id.clone(), RwLock::new(user));
     }
 
     pub async fn list_user(&self, request: ListUserRequest) -> ListUserResponse {
@@ -205,65 +300,74 @@ impl Entry {
             status: Code::NotFound,
         })
     }
-    #[cfg(not(feature = "orchestrator"))]
+    #[cfg(not(feature = "sst"))]
     pub async fn ping_event(&self, hash: &u64) {
         if let Some(event) = self.events.read().await.get(hash) {
             event.notify(1);
         }
     }
-    #[cfg(not(feature = "orchestrator"))]
-    pub async fn create_event(&self, hash: u64) {
-        let event = ProposeEvent::new(DataRequestType::PROPOSE, Duration::from_secs(5));
+    #[cfg(not(feature = "sst"))]
+    pub async fn create_event(&self, hash: u64, user_id: Option<String>) {
+        let event = ProposeEvent::new(DataRequestType::PROPOSE, user_id, Duration::from_secs(5));
         self.completion_loops.write().await.insert(hash, event);
         self.events.write().await.insert(hash, Event::new());
     }
-    #[cfg(not(feature = "orchestrator"))]
+    #[cfg(not(feature = "sst"))]
     pub async fn remove_event(&self, hash: &u64) {
         self.completion_loops.write().await.remove(hash);
         self.events.write().await.remove(&hash);
     }
-    #[cfg(not(feature = "orchestrator"))]
-    pub async fn fail_event(&self, hash: u64) {
+    #[cfg(not(feature = "sst"))]
+    pub async fn fail_event(&self, hash: u64, user_id: Option<String>) {
         if let Some(event) = self.completion_loops.write().await.get_mut(&hash) {
-            event.update(DataRequestType::FAILED);
-        }        
-    }
-    #[cfg(not(feature = "orchestrator"))]
-    pub async fn success_event(&self, hash: u64) {
-        if let Some(event) = self.completion_loops.write().await.get_mut(&hash) {
-            event.update(DataRequestType::VALIDATED);
+            event.update(DataRequestType::FAILED, user_id);
         }
     }
-    #[cfg(not(feature = "orchestrator"))]
-    async fn propose_value(&self, user_option: &Option<&RwLock<User>>, request: DataRequests, calling_user: &PublicUser) -> Result<(), BecoError> {
+    #[cfg(not(feature = "sst"))]
+    pub async fn success_event(&self, hash: u64, user_id: Option<String>, status: DataRequestType) {
+        if let Some(event) = self.completion_loops.write().await.get_mut(&hash) {
+            event.update(status, user_id);
+        }
+    }
+    #[cfg(not(feature = "sst"))]
+    async fn propose_value(
+        &self,
+        user_option: &Option<&RwLock<User>>,
+        request: DataRequests,
+        calling_user: &PublicUser,
+    ) -> Result<(), BecoError> {
         let read_user = user_option.unwrap().read().await;
-            match request {
-                DataRequests::FirstName(request) => {
-                    read_user
-                        .user_details
-                        .first_name
-                        .propose(Some(request.name), &calling_user)
-                        .await
-                }
-                DataRequests::OtherNames(request) => {
-                    read_user
-                        .user_details
-                        .other_names
-                        .propose(Some(request.other_names), &calling_user)
-                        .await
-                }
-                DataRequests::LastName(request) => {
-                    read_user
-                        .user_details
-                        .last_name
-                        .propose(Some(request.name), &calling_user)
-                        .await
-                }
-                DataRequests::AddAccount(request) => read_user.propose_account(request, &calling_user),
+        match request {
+            DataRequests::FirstName(request) => {
+                read_user
+                    .user_details
+                    .first_name
+                    .propose(Some(request.name), &calling_user)
+                    .await
             }
+            DataRequests::OtherNames(request) => {
+                read_user
+                    .user_details
+                    .other_names
+                    .propose(Some(request.other_names), &calling_user)
+                    .await
+            }
+            DataRequests::LastName(request) => {
+                read_user
+                    .user_details
+                    .last_name
+                    .propose(Some(request.name), &calling_user)
+                    .await
+            }
+            DataRequests::AddAccount(request) => read_user.propose_account(request, &calling_user),
+            DataRequests::AddUser(_) | DataRequests::LoadUser(_) => Err(BecoError {
+                message: "Invalid path to perform action".to_string(),
+                status: Code::Internal,
+            }),
+        }
     }
 
-    #[cfg(not(feature = "orchestrator"))]
+    #[cfg(not(feature = "sst"))]
     pub async fn corroborate(&self, request: &mut ProcessRequest) {
         let users = &self.users.read().await;
         let calling_user = self
@@ -290,8 +394,10 @@ impl Entry {
                 .await;
             return;
         }
-        let result = self.propose_value(&user_option, request.request.clone(), &calling_user).await;
-        
+        let result = self
+            .propose_value(&user_option, request.request.clone(), &calling_user)
+            .await;
+
         if result.is_err() {
             request.failed_signatures.insert("Hi2".into());
             request.status = DataRequestType::INVALID;
@@ -308,7 +414,7 @@ impl Entry {
                 .await;
         }
     }
-    #[cfg(not(feature = "orchestrator"))]
+    #[cfg(not(feature = "sst"))]
     pub async fn propose(
         &self,
         data_request: DataRequests,
@@ -337,15 +443,17 @@ impl Entry {
                 status: Code::NotFound,
             });
         }
-        let result = self.propose_value(&user_option, data_request.clone(), &calling_user).await;
-        
+        let result = self
+            .propose_value(&user_option, data_request.clone(), &calling_user)
+            .await;
+
         if result.is_err() {
             Err(result.unwrap_err())
         } else {
             let hash = calculate_hash(&data_request);
             {
-                self.create_event(hash.clone()).await;
-            }            
+                self.create_event(hash.clone(), Some(user_id.clone())).await;
+            }
 
             let mut signatures: HashSet<String> = HashSet::new();
             signatures.insert("Me".into());
@@ -360,6 +468,7 @@ impl Entry {
                 hash: hash,
                 datetime: None,
                 connected_peers: 0,
+                originator_hash: None,
             };
             let _ = self
                 .tx_p2p
@@ -371,19 +480,26 @@ impl Entry {
                 }
                 let completion_loops = self.completion_loops.read().await;
                 let completion_option = completion_loops.get(&hash);
-                
+
                 if let Some(completion) = completion_option {
                     let result = completion.await;
-                    result == DataRequestType::VALIDATED
-                } else { false }
-            };            
-            
+                    result.0 == DataRequestType::VALIDATED
+                } else {
+                    false
+                }
+            };
+
             {
                 self.remove_event(&hash).await;
             }
 
             if success {
-                Ok(user_option.unwrap().read().await.as_public_user(&calling_user).into())
+                Ok(user_option
+                    .unwrap()
+                    .read()
+                    .await
+                    .as_public_user(&calling_user)
+                    .into())
             } else {
                 Err(BecoError {
                     message: "Failed to validate the request within 5 seconds".into(),
@@ -393,12 +509,31 @@ impl Entry {
         }
     }
 
+    #[cfg(not(feature = "sst"))]
     pub async fn update(
         &self,
         data_request: DataRequests,
         calling_user_id: String,
         user_id: String,
     ) -> Result<GetUserResponse, BecoError> {
+        let result = self
+            .update_value(data_request, calling_user_id, user_id)
+            .await;
+        if result.is_err() {
+            let error = result.unwrap_err();
+            Err(error)
+        } else {
+            let (user, calling_user) = result.unwrap();
+            Ok(user.as_public_user(&calling_user).into())
+        }
+    }
+
+    pub async fn update_value(
+        &self,
+        data_request: DataRequests,
+        calling_user_id: String,
+        user_id: String,
+    ) -> Result<(User, PublicUser), BecoError> {
         let users = self.users.read().await;
         let calling_user = self
             .get_public_user(
@@ -445,12 +580,13 @@ impl Entry {
                     .await
             }
             DataRequests::AddAccount(request) => write_user.add_account(request, &calling_user),
+            _ => Ok(()),
         };
         if result.is_err() {
             let error = result.unwrap_err();
             Err(error)
         } else {
-            Ok(write_user.as_public_user(&calling_user).into())
+            Ok((write_user.clone(), calling_user))
         }
     }
 }

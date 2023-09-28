@@ -1,10 +1,20 @@
 mod behaviour;
 
-#[cfg(any(feature = "grpc", feature = "validator", feature = "rendezvous", feature = "orchestrator"))]
+#[cfg(any(
+    feature = "grpc",
+    feature = "validator",
+    feature = "rendezvous",
+    feature = "sst"
+))]
 use either::Either;
-#[cfg(any(feature = "grpc", feature = "validator", feature = "rendezvous", feature = "orchestrator"))]
+#[cfg(any(
+    feature = "grpc",
+    feature = "validator",
+    feature = "rendezvous",
+    feature = "sst"
+))]
 use futures::prelude::*;
-#[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
+#[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport, transport::upgrade::Version},
     gossipsub, identify, identity,
@@ -15,9 +25,9 @@ use libp2p::{
     swarm::{keep_alive, SwarmBuilder, SwarmEvent, THandlerErr},
     tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
 };
-#[cfg(any(feature = "validator", feature = "orchestrator"))]
+#[cfg(any(feature = "validator", feature = "sst"))]
 use std::{env, error::Error, fs, path::Path, str::FromStr, time::Duration};
-#[cfg(any(feature = "rendezvous", feature = "orchestrator"))]
+#[cfg(any(feature = "rendezvous", feature = "sst"))]
 use tokio::sync::OnceCell;
 
 #[cfg(any(feature = "grpc"))]
@@ -47,8 +57,15 @@ use std::collections::HashMap;
 #[cfg(any(feature = "validator"))]
 use tokio::sync::{OnceCell, RwLock};
 
+#[cfg(any(feature = "sst"))]
+use crate::entry::Entry;
 #[cfg(feature = "rendezvous")]
 use crate::p2p::behaviour::{RendezvousServerBehaviour, RendezvousServerBehaviourEvent};
+#[cfg(any(feature = "sst"))]
+use crate::{
+    enums::data_value::{DataRequestType, ProcessRequest},
+    p2p::behaviour::{BecoBehaviour, BecoBehaviourEvent},
+};
 #[cfg(any(feature = "rendezvous"))]
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport, transport::upgrade::Version},
@@ -62,11 +79,6 @@ use libp2p::{
 };
 #[cfg(any(feature = "rendezvous"))]
 use std::{error::Error, fs, path::Path, str::FromStr, time::Duration};
-#[cfg(any(feature = "orchestrator"))]
-use crate::{
-    enums::data_value::{DataRequestType, ProcessRequest},
-    p2p::behaviour::{BecoBehaviour, BecoBehaviourEvent},
-};
 
 // https://github.com/libp2p/rust-libp2p/blob/master/examples/ipfs-private/src/main.rs
 static RENDEZVOUS_POINT_ADDRESS: OnceCell<Multiaddr> = OnceCell::const_new();
@@ -81,7 +93,7 @@ static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWF7xVsdhKwfaG18i95gfhn4Ez1PtwCmzk5TVr4sYLkuXk"
+            "12D3KooWMqZeoA7toQCJ9tXDa1FPTHEoWGz2J7ACAdLSQmuC4ZBe"
                 .parse()
                 .unwrap()
         })
@@ -98,6 +110,8 @@ pub struct P2P {
     corroborate_gossip_sub: gossipsub::IdentTopic,
     validated_gossip_sub: gossipsub::IdentTopic,
     load_user_gossip_sub: gossipsub::IdentTopic,
+    new_user_gossip_sub: gossipsub::IdentTopic,
+    response_gossip_sub: gossipsub::IdentTopic,
 }
 
 #[cfg(feature = "validator")]
@@ -112,12 +126,15 @@ pub struct P2P {
     proposal_queues: RwLock<HashMap<String, RwLock<Vec<ProcessRequest>>>>,
 }
 
-#[cfg(feature = "orchestrator")]
+#[cfg(feature = "sst")]
 pub struct P2P {
     keys: identity::Keypair,
     peer_id: PeerId,
+    entry: Entry,
     validated_gossip_sub: gossipsub::IdentTopic,
     load_gossip_sub: gossipsub::IdentTopic,
+    new_user_gossip_sub: gossipsub::IdentTopic,
+    response_gossip_sub: gossipsub::IdentTopic,
 }
 
 #[cfg(feature = "rendezvous")]
@@ -137,6 +154,8 @@ impl P2P {
         let validated_gossip_sub =
             gossipsub::IdentTopic::new(DataRequestType::VALIDATED.to_string());
         let load_user_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::LOAD.to_string());
+        let new_user_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::NEW.to_string());
+        let response_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::RESPONSE.to_string());
         Self {
             keys,
             peer_id,
@@ -146,6 +165,8 @@ impl P2P {
             corroborate_gossip_sub,
             validated_gossip_sub,
             load_user_gossip_sub,
+            new_user_gossip_sub,
+            response_gossip_sub,
         }
     }
 
@@ -176,19 +197,25 @@ impl P2P {
         Self { keys, peer_id }
     }
 
-    #[cfg(feature = "orchestrator")]
+    #[cfg(feature = "sst")]
     pub fn new() -> Self {
+
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
+        let entry = Entry::new();
         let validated_gossip_sub =
             gossipsub::IdentTopic::new(DataRequestType::VALIDATED.to_string());
-        let load_gossip_sub =
-            gossipsub::IdentTopic::new(DataRequestType::LOAD.to_string());
+        let load_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::LOAD.to_string());
+        let new_user_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::NEW.to_string());
+        let response_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::RESPONSE.to_string());
         Self {
             keys,
             peer_id,
+            entry,
             validated_gossip_sub,
             load_gossip_sub,
+            new_user_gossip_sub,
+            response_gossip_sub,
         }
     }
 
@@ -328,7 +355,7 @@ impl P2P {
         }
     }
 
-    #[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
+    #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
     pub async fn create_swarm(&self) -> Result<Swarm<BecoBehaviour>, Box<dyn Error>> {
         // env_logger::init();
 
@@ -413,6 +440,16 @@ impl P2P {
             .gossipsub
             .subscribe(&self.load_user_gossip_sub)
             .unwrap();
+        println!("Subscribing to {:?}", self.new_user_gossip_sub);
+        behaviour
+            .gossipsub
+            .subscribe(&self.new_user_gossip_sub)
+            .unwrap();
+        println!("Subscribing to {:?}", self.response_gossip_sub);
+        behaviour
+            .gossipsub
+            .subscribe(&self.response_gossip_sub)
+            .unwrap();
     }
 
     #[cfg(feature = "validator")]
@@ -434,7 +471,7 @@ impl P2P {
             .unwrap();
     }
 
-    #[cfg(feature = "orchestrator")]
+    #[cfg(feature = "sst")]
     fn subscribe_to_topics(&self, behaviour: &mut BecoBehaviour) {
         println!("Subscribing to {:?}", self.validated_gossip_sub);
         behaviour
@@ -445,6 +482,16 @@ impl P2P {
         behaviour
             .gossipsub
             .subscribe(&self.load_gossip_sub)
+            .unwrap();
+        println!("Subscribing to {:?}", self.new_user_gossip_sub);
+        behaviour
+            .gossipsub
+            .subscribe(&self.new_user_gossip_sub)
+            .unwrap();
+        println!("Subscribing to {:?}", self.response_gossip_sub);
+        behaviour
+            .gossipsub
+            .subscribe(&self.response_gossip_sub)
             .unwrap();
     }
 
@@ -467,6 +514,8 @@ impl P2P {
                         DataRequestType::VALIDATED => { &self.validated_gossip_sub },
                         DataRequestType::FAILED => { &self.validated_gossip_sub },
                         DataRequestType::LOAD => { &self.load_user_gossip_sub },
+                        DataRequestType::NEW => { &self.new_user_gossip_sub},
+                        DataRequestType::RESPONSE => { &self.response_gossip_sub},
                     };
                     if let Err(e) = swarm
                         .behaviour_mut()
@@ -520,7 +569,7 @@ impl P2P {
         }
     }
 
-    #[cfg(any(feature = "orchestrator"))]
+    #[cfg(any(feature = "sst"))]
     pub async fn loop_swarm(&mut self) {
         let mut swarm = self.create_swarm().await.unwrap();
         let mut discover_tick = tokio::time::interval(Duration::from_secs(30));
@@ -545,7 +594,7 @@ impl P2P {
         }
     }
 
-    #[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
+    #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
     async fn register(&self, swarm: &mut Swarm<BecoBehaviour>) {
         let result = swarm.behaviour_mut().rendezvous.register(
             rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap(),
@@ -560,7 +609,7 @@ impl P2P {
         }
     }
 
-    #[cfg(any(feature = "grpc", feature = "validator", feature = "orchestrator"))]
+    #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
     async fn process_swarm_events(
         &self,
         event: SwarmEvent<BecoBehaviourEvent, THandlerErr<BecoBehaviour>>,
@@ -892,6 +941,8 @@ impl P2P {
         message: gossipsub::Message,
         swarm: &mut Swarm<BecoBehaviour>,
     ) {
+        use crate::enums::data_value::DataRequests;
+
         let mut propose_request: ProcessRequest =
             serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
         match propose_request.status {
@@ -906,36 +957,92 @@ impl P2P {
                     .update(
                         propose_request.request,
                         propose_request.calling_user,
-                        propose_request.user_id,
+                        propose_request.user_id.clone(),
                     )
                     .await;
                 println!("{response:?}");
                 if response.is_ok() {
-                    self.entry.success_event(hash).await;
+                    self.entry
+                        .success_event(hash, Some(propose_request.user_id), propose_request.status)
+                        .await;
                     self.entry.ping_event(&hash).await;
                 } else {
-                    self.entry.fail_event(hash).await;
+                    self.entry
+                        .fail_event(hash, Some(propose_request.user_id))
+                        .await;
                     self.entry.ping_event(&hash).await;
                 }
             }
             DataRequestType::FAILED | DataRequestType::NOTFOUND => {
                 let hash = calculate_hash(&propose_request.request);
-                self.entry.fail_event(hash).await;
+                self.entry
+                    .fail_event(hash, Some(propose_request.user_id))
+                    .await;
                 self.entry.ping_event(&hash).await;
+            }
+            DataRequestType::RESPONSE => {
+                if propose_request.originator_hash.is_none() {
+                    return;
+                }
+                let hash = propose_request.originator_hash.unwrap();
+                match propose_request.request {
+                    DataRequests::LoadUser(user) => {
+                        self.entry.load_user(user.clone()).await;
+                        self.entry.success_event(hash, Some(user.id), propose_request.status).await;
+                        self.entry.ping_event(&hash).await;
+                    },
+                    _ => {}
+                }               
+
             }
             _ => {}
         };
     }
 
-    #[cfg(feature = "orchestrator")]
+    #[cfg(feature = "sst")]
     async fn process_gossipsub(
         &self,
         message: gossipsub::Message,
         swarm: &mut Swarm<BecoBehaviour>,
     ) {
-        let mut propose_request: ProcessRequest =
+        use std::collections::HashSet;
+
+        use chrono::Utc;
+
+        use crate::{enums::data_value::DataRequests, utils::calculate_hash};
+
+        let propose_request: ProcessRequest =
             serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
         match propose_request.status {
+            DataRequestType::NEW => match propose_request.request {
+                DataRequests::AddUser(request) => {
+                    let (user, _ ) = self.entry.add_user(request).await;
+                    let data_request = DataRequests::LoadUser(user.clone());
+                    let hash = calculate_hash(&data_request);
+                    let load_request = ProcessRequest {
+                        validated_signatures: HashSet::new(),
+                        failed_signatures: HashSet::new(),
+                        ignore_signatures: HashSet::new(),
+                        status: DataRequestType::RESPONSE,
+                        request: data_request,
+                        calling_user: propose_request.calling_user,
+                        user_id: user.id,
+                        hash,
+                        datetime: Some(Utc::now()),
+                        connected_peers: 0,
+                        originator_hash: propose_request.originator_hash,
+                    };
+                    let result = swarm.behaviour_mut().gossipsub.publish(
+                        self.response_gossip_sub.clone(),
+                        serde_json::to_vec(&load_request).unwrap(),
+                    );
+            
+                    if let Err(e) = result {
+                        println!("Error pusblishing message: {e:?}");
+                    }
+                }
+                _ => {},
+            },
             _ => {}
         };
     }

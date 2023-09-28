@@ -4,20 +4,21 @@ use crate::{
     traits::{key::Key, value::Values},
     user::public_user::PublicUser, proto::beco::AddAccountRequest,
 };
+use serde::{Deserialize, Serialize};
 use tonic::Code;
 use xrpl::{
     constants::CryptoAlgorithm,
     core::keypairs::{derive_classic_address, derive_keypair, generate_seed},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct XRPLKeyValues {
     pub public_key: String,
     pub classic_address: String,
     pub alias: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct XRPLKey {
     seed: String,
     public_key: String,

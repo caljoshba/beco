@@ -1,14 +1,14 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddAccountRequest {
-    #[prost(enumeration = "Blockchain", tag = "1")]
-    pub blockchain: i32,
-    #[prost(string, tag = "2")]
-    pub alias: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
+    #[prost(string, tag = "1")]
     pub user_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "2")]
     pub calling_user: ::prost::alloc::string::String,
+    #[prost(enumeration = "Blockchain", tag = "3")]
+    pub blockchain: i32,
+    #[prost(string, tag = "4")]
+    pub alias: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -37,8 +37,10 @@ pub struct WalletResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddUserRequest {
-    #[prost(string, optional, tag = "1")]
-    pub name: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, tag = "2")]
+    pub calling_user: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -72,9 +74,9 @@ pub struct ListUserResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ModifyLinkedUserRequest {
     #[prost(string, tag = "1")]
-    pub calling_user: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
     pub user_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub calling_user: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
