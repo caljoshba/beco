@@ -63,18 +63,6 @@ impl User {
         );
         chain_accounts
     }
-    #[cfg(not(feature = "sst"))]
-    pub fn new(first_name: Option<String>) -> Self {
-        let id = Uuid::new_v4().to_string();
-
-        Self {
-            id: id.clone(),
-            chain_accounts: User::generate_default_chain_accounts(id.to_string()),
-            sequence: 0,
-            user_details: UserDetails::new(id.to_string(), first_name),
-            linked_users: HashMap::new(),
-        }
-    }
 
     #[cfg(feature = "sst")]
     pub fn new(first_name: Option<String>) -> Self {
@@ -171,6 +159,27 @@ impl User {
         }
         let removed_account = self.linked_users.remove(&user.id);
         if removed_account.is_none() {
+            return Err(BecoError {
+                message: "User does not exist as linked account".into(),
+                status: Code::NotFound,
+            });
+        }
+        Ok(())
+    }
+
+    pub fn propose_alter_linked_user(
+        &self,
+        user: &PublicUser,
+        calling_user: &PublicUser,
+    ) -> Result<(), BecoError> {
+        if user != calling_user && calling_user.id != self.id.to_string() {
+            return Err(BecoError {
+                message: "User does not have permission to alter this linked account".into(),
+                status: Code::PermissionDenied,
+            });
+        }
+        let altered_account = self.linked_users.get(&user.id);
+        if altered_account.is_none() {
             return Err(BecoError {
                 message: "User does not exist as linked account".into(),
                 status: Code::NotFound,

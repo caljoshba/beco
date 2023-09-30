@@ -14,6 +14,7 @@ use either::Either;
     feature = "sst"
 ))]
 use futures::prelude::*;
+use libp2p::rendezvous::Cookie;
 #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport, transport::upgrade::Version},
@@ -87,13 +88,15 @@ async fn rendezvous_address() -> &'static Multiaddr {
         .get_or_init(|| async { "/ip4/127.0.0.1/tcp/62649".parse::<Multiaddr>().unwrap() })
         .await
 }
-const NAMESPACE: &str = "rendezvous";
+const USER_NAMESPACE: &str = "user";
+const ORG_NAMESPACE: &str = "organisation";
+const GOV_NAMESPACE: &str = "government";
 
 static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWGuC7iJJtcvH9NwnnZ5urrW4Sxgi2WzD5jTX3d4mgWPhs"
+            "12D3KooWFsEyQEyfRSZr513eqA5DoWh3S5cXCmdZhKz1U7kbLD42"
                 .parse()
                 .unwrap()
         })
@@ -534,12 +537,13 @@ impl P2P {
                 }
                 _ = discover_tick.tick() => {
                     if cookie.is_some() {
-                        swarm.behaviour_mut().rendezvous.discover(
-                            Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                            cookie.clone(),
-                            None,
-                            rendezvous_peer_id().await.clone()
-                        );
+                        self.discover_rendzvous(&mut swarm, USER_NAMESPACE.to_string(), cookie.clone()).await;
+                        // swarm.behaviour_mut().rendezvous.discover(
+                        //     Some(rendezvous::Namespace::new(USER_NAMESPACE.to_string()).unwrap()),
+                        //     cookie.clone(),
+                        //     None,
+                        //     rendezvous_peer_id().await.clone()
+                        // );
                     }
                 }
                 // need a mechanism to routinely go around and check the queues process the next one if something went wrong
@@ -559,12 +563,13 @@ impl P2P {
             tokio::select! {
                 _ = discover_tick.tick() => {
                     if cookie.is_some() {
-                        swarm.behaviour_mut().rendezvous.discover(
-                            Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                            cookie.clone(),
-                            None,
-                            rendezvous_peer_id().await.clone()
-                        )
+                        self.discover_rendzvous(&mut swarm, USER_NAMESPACE.to_string(), cookie.clone()).await;
+                        // swarm.behaviour_mut().rendezvous.discover(
+                        //     Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                        //     cookie.clone(),
+                        //     None,
+                        //     rendezvous_peer_id().await.clone()
+                        // )
                     }
                 }
                 // need a mechanism to routeinly go around and check the queues process the next one if something went wrong
@@ -584,12 +589,13 @@ impl P2P {
             tokio::select! {
                 _ = discover_tick.tick() => {
                     if cookie.is_some() {
-                        swarm.behaviour_mut().rendezvous.discover(
-                            Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                            cookie.clone(),
-                            None,
-                            rendezvous_peer_id().await.clone()
-                        )
+                        self.discover_rendzvous(&mut swarm, USER_NAMESPACE.to_string(), cookie.clone()).await;
+                        // swarm.behaviour_mut().rendezvous.discover(
+                        //     Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                        //     cookie.clone(),
+                        //     None,
+                        //     rendezvous_peer_id().await.clone()
+                        // )
                     }
                 }
                 // need a mechanism to routeinly go around and check the queues process the next one if something went wrong
@@ -601,9 +607,19 @@ impl P2P {
     }
 
     #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
+    async fn discover_rendzvous(&self, swarm: &mut Swarm<BecoBehaviour>, namespace: String, cookie: Option<Cookie>) {
+        swarm.behaviour_mut().rendezvous.discover(
+            Some(rendezvous::Namespace::new(namespace).unwrap()),
+            cookie,
+            None,
+            rendezvous_peer_id().await.clone(),
+        );
+    }
+
+    #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
     async fn register(&self, swarm: &mut Swarm<BecoBehaviour>) {
         let result = swarm.behaviour_mut().rendezvous.register(
-            rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap(),
+            rendezvous::Namespace::new(USER_NAMESPACE.to_string()).unwrap(),
             rendezvous_peer_id().await.clone(),
             None,
         );
@@ -681,12 +697,13 @@ impl P2P {
                 println!("Connection established: {peer_id:?}");
                 if peer_id == rendezvous_peer_id().await.clone() {
                     self.register(swarm).await;
-                    swarm.behaviour_mut().rendezvous.discover(
-                        Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                        None,
-                        None,
-                        rendezvous_peer_id().await.clone(),
-                    );
+                    self.discover_rendzvous(swarm, USER_NAMESPACE.to_string(), None).await;
+                    // swarm.behaviour_mut().rendezvous.discover(
+                    //     Some(rendezvous::Namespace::new(USER_NAMESPACE.to_string()).unwrap()),
+                    //     None,
+                    //     None,
+                    //     rendezvous_peer_id().await.clone(),
+                    // );
                 }
             }
             SwarmEvent::Behaviour(BecoBehaviourEvent::Rendezvous(
@@ -774,8 +791,8 @@ impl P2P {
                 process_request.status = DataRequestType::CORROBORATE;
 
                 let connections: usize = swarm.connected_peers().count();
-                process_request.connected_peers = if connections > 1 {
-                    connections - 1
+                process_request.connected_peers = if connections > 2 {
+                    connections - 2
                 } else {
                     connections.clone()
                 };
@@ -917,6 +934,7 @@ impl P2P {
             println!("Error pusblishing message: {e:?}");
             return false;
         }
+        println!("sent message with status: {}", queued_request.status);
         return true;
     }
 
@@ -1006,6 +1024,19 @@ impl P2P {
                     _ => {}
                 }
             }
+            DataRequestType::LOAD => match process_request.request {
+                DataRequests::LoadUser(user) => {
+                    if self.entry.is_user_loaded(&user).await {
+                        self.entry.load_user(user.clone()).await;
+                    }
+                    let hash = process_request.originator_hash.unwrap_or(0);
+                    if hash != 0 && self.entry.does_event_exist(hash).await {
+                        self.entry.fail_event(hash, Some(user.id)).await;
+                        self.entry.ping_event(&hash).await;
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         };
     }
@@ -1027,14 +1058,19 @@ impl P2P {
         match process_request.status {
             DataRequestType::NEW => match process_request.request {
                 DataRequests::AddUser(request) => {
-                    let (user, _) = self.entry.add_user(request).await;
+                    let (user, _, complete_without_error) = self.entry.add_user(request).await;
                     let data_request = DataRequests::LoadUser(user.clone());
                     let hash = calculate_hash(&data_request);
+                    let status = if complete_without_error {
+                        DataRequestType::RESPONSE
+                    } else {
+                        DataRequestType::LOAD
+                    };
                     let load_request = ProcessRequest {
                         validated_signatures: HashSet::new(),
                         failed_signatures: HashSet::new(),
                         ignore_signatures: HashSet::new(),
-                        status: DataRequestType::RESPONSE,
+                        status,
                         request: data_request,
                         calling_user: process_request.calling_user,
                         user_id: user.id,

@@ -52,7 +52,7 @@ impl Beco for BecoImplementation {
         let result = self
             .entry
             .propose(
-                DataRequests::AddAccount(inner_request.clone()),
+                DataRequests::AddCryptoAccount(inner_request.clone()),
                 inner_request.calling_user.clone(),
                 inner_request.user_id.clone(),
             )

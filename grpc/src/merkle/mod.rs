@@ -46,7 +46,7 @@ impl SST {
     ) -> Result<User, crate::errors::BecoError> {
         let cloned_process_request = process_request.clone();
         let updated_user_result = match cloned_process_request.request.clone() {
-            DataRequests::AddAccount(data_request) => {
+            DataRequests::AddCryptoAccount(data_request) => {
                 self.entry
                     .update_value(
                         cloned_process_request.request,
@@ -83,8 +83,8 @@ impl SST {
                     .await
             }
             DataRequests::AddUser(data_request) => {
-                let users = self.entry.add_user(data_request).await;
-                Ok(users)
+                let (user, public_user, _) = self.entry.add_user(data_request).await;
+                Ok((user, public_user))
             }
             _ => { Err(BecoError { message: "Not iomplemented".to_string(), status: Code::Unimplemented }) }
         };

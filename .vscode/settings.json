@@ -4,20 +4,20 @@
         // "./user-dns/Cargo.toml"
     ],
     "rust-analyzer.cargo.cfgs": {
-        "grpc": true
-        // "validator": true
+        // "grpc": true
+        "validator": true
         // "sst": true
         // "rendezvous": true
     },
     "rust-analyzer.cargo.features": [
-        "grpc"
-        // "validator"
+        // "grpc"
+        "validator"
         // "sst"
         // "rendezvous"
     ],
     "rust-analyzer.check.features": [
-        "grpc"
-        // "validator"
+        // "grpc"
+        "validator"
         // "sst"
         // "rendezvous"
     ],

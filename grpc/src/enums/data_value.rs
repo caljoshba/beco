@@ -1,12 +1,13 @@
-use std::{hash::Hash, collections::HashSet};
+use std::{collections::HashSet, hash::Hash};
 
 use chrono::{DateTime, Utc};
-use serde::{
-    Deserialize, Serialize,
-};
+use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
-use crate::{proto::beco::{AddAccountRequest, ModifyNameRequest, ModifyOtherNamesRequest, AddUserRequest}, user::user::User};
+use crate::{
+    proto::beco::{AddAccountRequest, AddUserRequest, ModifyNameRequest, ModifyOtherNamesRequest},
+    user::user::User,
+};
 
 #[derive(Debug, Clone, Display, EnumString, Eq, PartialEq)]
 pub enum DataValue {
@@ -76,9 +77,11 @@ pub enum DataRequests {
     FirstName(ModifyNameRequest),
     OtherNames(ModifyOtherNamesRequest),
     LastName(ModifyNameRequest),
-    AddAccount(AddAccountRequest),
     AddUser(AddUserRequest),
     LoadUser(User),
+    AddCryptoAccount(AddAccountRequest),
+    // RemoveLinkedUserRequest(ModifyLinkedUserRequest),
+    // AddLinkedUserRequest(ModifyLinkedUserRequest),
     // AddLinkedUser(ModifyLinkedUserRequest),
     // RemoveLinkedUser(ModifyLinkedUserRequest),
 }

@@ -183,7 +183,7 @@ impl Entry {
     }
 
     #[cfg(feature = "sst")]
-    pub async fn add_user(&self, request: AddUserRequest) -> (User, PublicUser) {
+    pub async fn add_user(&self, request: AddUserRequest) -> (User, PublicUser, bool) {
         // need to implement a check to see if they exist first
         // need something like the national insurance number for this
         let user = User::new(Some(request.name));
@@ -196,9 +196,15 @@ impl Entry {
                 user.id.to_string(),
             )
             .await;
-        (user, calling_user)
+        (user, calling_user, true)
     }
 
+    #[cfg(not(feature = "sst"))]
+    pub async fn is_user_loaded(&self, user: &User) -> bool {
+        let users = &mut self.users.read().await;
+        users.get(&user.id).is_some()
+    }
+    
     #[cfg(not(feature = "sst"))]
     pub async fn load_user(&self, user: User) {
         let users = &mut self.users.write().await;
@@ -336,6 +342,11 @@ impl Entry {
         }
     }
     #[cfg(not(feature = "sst"))]
+    pub async fn does_event_exist(&self, hash: u64) -> bool {
+        let completion_loops = self.completion_loops.read().await;
+        completion_loops.get(&hash).is_some()
+    }
+    #[cfg(not(feature = "sst"))]
     async fn propose_value(
         &self,
         user_option: &Option<&RwLock<User>>,
@@ -365,7 +376,7 @@ impl Entry {
                     .propose(Some(request.name), &calling_user)
                     .await
             }
-            DataRequests::AddAccount(request) => read_user.propose_account(request, &calling_user),
+            DataRequests::AddCryptoAccount(request) => read_user.propose_account(request, &calling_user),
             DataRequests::AddUser(_) | DataRequests::LoadUser(_) => Err(BecoError {
                 message: "Invalid path to perform action".to_string(),
                 status: Code::Internal,
@@ -552,7 +563,7 @@ impl Entry {
                     .update(Some(request.name), &calling_user)
                     .await
             }
-            DataRequests::AddAccount(request) => write_user.add_account(request, &calling_user),
+            DataRequests::AddCryptoAccount(request) => write_user.add_account(request, &calling_user),
             _ => Ok(()),
         };
         if result.is_err() {
