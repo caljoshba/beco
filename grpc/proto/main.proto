@@ -10,8 +10,8 @@ extend google.protobuf.EnumValueOptions {
 service Beco {
     rpc ListUser(ListUserRequest) returns (ListUserResponse);
     rpc AddUser(AddUserRequest) returns (GetUserResponse);
-    rpc AddLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
-    rpc RemoveLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
+    // rpc AddLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
+    // rpc RemoveLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
     rpc UpdateFirstName(ModifyNameRequest) returns (GetUserResponse);
     rpc UpdateOtherNames(ModifyOtherNamesRequest) returns (GetUserResponse);
     rpc UpdateLastName(ModifyNameRequest) returns (GetUserResponse);

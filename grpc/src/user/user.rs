@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use tonic::Code;
-use uuid::Uuid;
 use std::hash::Hash;
 
 use crate::{
@@ -14,6 +13,9 @@ use crate::{
     user::{public_user::PublicUser, user_details::UserDetails},
 };
 
+#[cfg(feature = "sst")]
+use uuid::Uuid;
+
 #[cfg(not(feature = "sst"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
@@ -21,7 +23,7 @@ pub struct User {
     pub user_details: UserDetails,
     sequence: u64,
     chain_accounts: HashMap<Blockchain, BlockchainCustody>,
-    linked_users: HashMap<String, PublicUser>,
+    // linked_users: HashMap<String, PublicUser>,
 }
 
 #[cfg(feature = "sst")]
@@ -31,7 +33,7 @@ pub struct User {
     pub user_details: UserDetails,
     sequence: u64,
     chain_accounts: HashMap<Blockchain, BlockchainCustody>,
-    linked_users: HashMap<String, PublicUser>,
+    // linked_users: HashMap<String, PublicUser>,
 }
 
 impl Hash for User {
@@ -43,10 +45,10 @@ impl Hash for User {
             blockchain.hash(state);
             custody.hash(state);
         });
-        self.linked_users.iter().for_each(|(user_id, public_user)| {
-            user_id.hash(state);
-            public_user.hash(state);
-        });
+        // self.linked_users.iter().for_each(|(user_id, public_user)| {
+        //     user_id.hash(state);
+        //     public_user.hash(state);
+        // });
     }
 }
 
@@ -73,7 +75,7 @@ impl User {
             chain_accounts: User::generate_default_chain_accounts(id.to_string()),
             sequence: 0,
             user_details: UserDetails::new(id.to_string(), first_name),
-            linked_users: HashMap::new(),
+            // linked_users: HashMap::new(),
         }
     }
 
@@ -138,55 +140,55 @@ impl User {
         }
     }
 
-    pub fn add_linked_user(&mut self, user: &PublicUser) {
-        self.linked_users.insert(user.id.clone(), user.clone());
-    }
+    // pub fn add_linked_user(&mut self, user: &PublicUser) {
+    //     self.linked_users.insert(user.id.clone(), user.clone());
+    // }
 
-    pub fn linked_users(&self) -> &HashMap<String, PublicUser> {
-        &self.linked_users
-    }
+    // pub fn linked_users(&self) -> &HashMap<String, PublicUser> {
+    //     &self.linked_users
+    // }
 
-    pub fn remove_linked_user(
-        &mut self,
-        user: &PublicUser,
-        calling_user: &PublicUser,
-    ) -> Result<(), BecoError> {
-        if user != calling_user && calling_user.id != self.id.to_string() {
-            return Err(BecoError {
-                message: "User does not have permission to remove this linked account".into(),
-                status: Code::PermissionDenied,
-            });
-        }
-        let removed_account = self.linked_users.remove(&user.id);
-        if removed_account.is_none() {
-            return Err(BecoError {
-                message: "User does not exist as linked account".into(),
-                status: Code::NotFound,
-            });
-        }
-        Ok(())
-    }
+    // pub fn remove_linked_user(
+    //     &mut self,
+    //     user: &PublicUser,
+    //     calling_user: &PublicUser,
+    // ) -> Result<(), BecoError> {
+    //     if user != calling_user && calling_user.id != self.id.to_string() {
+    //         return Err(BecoError {
+    //             message: "User does not have permission to remove this linked account".into(),
+    //             status: Code::PermissionDenied,
+    //         });
+    //     }
+    //     let removed_account = self.linked_users.remove(&user.id);
+    //     if removed_account.is_none() {
+    //         return Err(BecoError {
+    //             message: "User does not exist as linked account".into(),
+    //             status: Code::NotFound,
+    //         });
+    //     }
+    //     Ok(())
+    // }
 
-    pub fn propose_alter_linked_user(
-        &self,
-        user: &PublicUser,
-        calling_user: &PublicUser,
-    ) -> Result<(), BecoError> {
-        if user != calling_user && calling_user.id != self.id.to_string() {
-            return Err(BecoError {
-                message: "User does not have permission to alter this linked account".into(),
-                status: Code::PermissionDenied,
-            });
-        }
-        let altered_account = self.linked_users.get(&user.id);
-        if altered_account.is_none() {
-            return Err(BecoError {
-                message: "User does not exist as linked account".into(),
-                status: Code::NotFound,
-            });
-        }
-        Ok(())
-    }
+    // pub fn propose_alter_linked_user(
+    //     &self,
+    //     user: &PublicUser,
+    //     calling_user: &PublicUser,
+    // ) -> Result<(), BecoError> {
+    //     if user != calling_user && calling_user.id != self.id.to_string() {
+    //         return Err(BecoError {
+    //             message: "User does not have permission to alter this linked account".into(),
+    //             status: Code::PermissionDenied,
+    //         });
+    //     }
+    //     let altered_account = self.linked_users.get(&user.id);
+    //     if altered_account.is_none() {
+    //         return Err(BecoError {
+    //             message: "User does not exist as linked account".into(),
+    //             status: Code::NotFound,
+    //         });
+    //     }
+    //     Ok(())
+    // }
 
     pub fn can_access(&self, user: PublicUser) -> bool {
         unimplemented!()

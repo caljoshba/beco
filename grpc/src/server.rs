@@ -120,27 +120,27 @@ impl Beco for BecoImplementation {
         Ok(Response::new(result.unwrap()))
     }
 
-    async fn add_linked_user(
-        &self,
-        request: Request<ModifyLinkedUserRequest>,
-    ) -> Result<Response<GetUserResponse>, Status> {
-        let inner_request = request.into_inner();
-        let result = self.entry.add_linked_user(inner_request).await;
-        if let Err(err) = result {
-            return Err(Status::new(err.status, err.message));
-        }
-        Ok(Response::new(result.unwrap()))
-    }
+    // async fn add_linked_user(
+    //     &self,
+    //     request: Request<ModifyLinkedUserRequest>,
+    // ) -> Result<Response<GetUserResponse>, Status> {
+    //     let inner_request = request.into_inner();
+    //     let result = self.entry.add_linked_user(inner_request).await;
+    //     if let Err(err) = result {
+    //         return Err(Status::new(err.status, err.message));
+    //     }
+    //     Ok(Response::new(result.unwrap()))
+    // }
 
-    async fn remove_linked_user(
-        &self,
-        request: Request<ModifyLinkedUserRequest>,
-    ) -> Result<Response<GetUserResponse>, Status> {
-        let inner_request = request.into_inner();
-        let result = self.entry.remove_linked_user(inner_request).await;
-        if let Err(err) = result {
-            return Err(Status::new(err.status, err.message));
-        }
-        Ok(Response::new(result.unwrap()))
-    }
+    // async fn remove_linked_user(
+    //     &self,
+    //     request: Request<ModifyLinkedUserRequest>,
+    // ) -> Result<Response<GetUserResponse>, Status> {
+    //     let inner_request = request.into_inner();
+    //     let result = self.entry.remove_linked_user(inner_request).await;
+    //     if let Err(err) = result {
+    //         return Err(Status::new(err.status, err.message));
+    //     }
+    //     Ok(Response::new(result.unwrap()))
+    // }
 }

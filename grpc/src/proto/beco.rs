@@ -256,53 +256,8 @@ pub mod beco_client {
             req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "AddUser"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn add_linked_user(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ModifyLinkedUserRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetUserResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/beco.Beco/AddLinkedUser");
-            let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("beco.Beco", "AddLinkedUser"));
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn remove_linked_user(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ModifyLinkedUserRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetUserResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/beco.Beco/RemoveLinkedUser",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("beco.Beco", "RemoveLinkedUser"));
-            self.inner.unary(req, path, codec).await
-        }
+        /// rpc AddLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
+        /// rpc RemoveLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
         pub async fn update_first_name(
             &mut self,
             request: impl tonic::IntoRequest<super::ModifyNameRequest>,
@@ -416,14 +371,8 @@ pub mod beco_server {
             &self,
             request: tonic::Request<super::AddUserRequest>,
         ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
-        async fn add_linked_user(
-            &self,
-            request: tonic::Request<super::ModifyLinkedUserRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
-        async fn remove_linked_user(
-            &self,
-            request: tonic::Request<super::ModifyLinkedUserRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetUserResponse>, tonic::Status>;
+        /// rpc AddLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
+        /// rpc RemoveLinkedUser(ModifyLinkedUserRequest) returns (GetUserResponse);
         async fn update_first_name(
             &self,
             request: tonic::Request<super::ModifyNameRequest>,
@@ -593,98 +542,6 @@ pub mod beco_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = AddUserSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/beco.Beco/AddLinkedUser" => {
-                    #[allow(non_camel_case_types)]
-                    struct AddLinkedUserSvc<T: Beco>(pub Arc<T>);
-                    impl<
-                        T: Beco,
-                    > tonic::server::UnaryService<super::ModifyLinkedUserRequest>
-                    for AddLinkedUserSvc<T> {
-                        type Response = super::GetUserResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ModifyLinkedUserRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Beco>::add_linked_user(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = AddLinkedUserSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/beco.Beco/RemoveLinkedUser" => {
-                    #[allow(non_camel_case_types)]
-                    struct RemoveLinkedUserSvc<T: Beco>(pub Arc<T>);
-                    impl<
-                        T: Beco,
-                    > tonic::server::UnaryService<super::ModifyLinkedUserRequest>
-                    for RemoveLinkedUserSvc<T> {
-                        type Response = super::GetUserResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ModifyLinkedUserRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Beco>::remove_linked_user(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = RemoveLinkedUserSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
