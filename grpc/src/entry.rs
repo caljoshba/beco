@@ -100,6 +100,12 @@ impl Entry {
     }
     #[cfg(not(feature = "sst"))]
     pub async fn add_user(&self, request: AddUserRequest) -> Result<GetUserResponse, BecoError> {
+        // let does_calling_user_exist = self
+        //     .does_user_exist(request.calling_user.clone(), request.calling_user.clone())
+        //     .await;
+        // if does_calling_user_exist.is_err() {
+        //     return Err(does_calling_user_exist.unwrap_err());
+        // }
         let calling_user = {
             let users = self.users.read().await;
             self.get_public_user(
@@ -128,7 +134,7 @@ impl Entry {
             originator_hash: Some(hash),
             originator_peer_id: None,
         };
-        self.send_message_wait(&process_request, hash, &calling_user)
+        self.send_message_return_public(&process_request, hash, &calling_user)
             .await
     }
 
@@ -137,9 +143,8 @@ impl Entry {
         &self,
         process_request: &ProcessRequest,
         hash: u64,
-        calling_user: &PublicUser,
-    ) -> Result<GetUserResponse, BecoError> {
-        let mut user_id: String = "".to_string();
+    ) -> Result<String, BecoError> {
+        let mut user_id: Option<String> = None;
         let _ = self
             .tx_p2p
             .send(serde_json::to_value(&process_request).unwrap())
@@ -154,9 +159,9 @@ impl Entry {
             if let Some(completion) = completion_option {
                 let (request_type, user_id_option) = completion.await;
                 if let Some(user) = user_id_option.clone() {
-                    user_id = user;
+                    user_id = Some(user);
                 }
-                request_type != DataRequestType::FAILED && user_id_option.is_some()
+                request_type != DataRequestType::FAILED
             } else {
                 false
             }
@@ -165,21 +170,41 @@ impl Entry {
         {
             self.remove_event(&hash).await;
         }
-        let users = self.users.read().await;
-        if success {
-            let user_option = users.get(&user_id);
-            Ok(user_option
-                .unwrap()
-                .read()
-                .await
-                .as_public_user(calling_user)
-                .into())
-        } else {
-            Err(BecoError {
+        if !success {
+            return Err(BecoError {
                 message: "Failed to validate the request within 5 seconds".into(),
                 status: Code::DeadlineExceeded,
-            })
+            });
         }
+        if user_id.is_none() {
+            return Err(BecoError {
+                message: "Invalid user ID".into(),
+                status: Code::NotFound,
+            });
+        }
+        Ok(user_id.unwrap())
+    }
+
+    #[cfg(not(feature = "sst"))]
+    async fn send_message_return_public(
+        &self,
+        process_request: &ProcessRequest,
+        hash: u64,
+        calling_user: &PublicUser,
+    ) -> Result<GetUserResponse, BecoError> {
+        let user_id_result = self.send_message_wait(process_request, hash).await;
+        if user_id_result.is_err() {
+            return Err(user_id_result.unwrap_err());
+        }
+        let user_id = user_id_result.unwrap();
+        let users = self.users.read().await;
+        let user_option = users.get(&user_id);
+        let public_user = user_option
+            .unwrap()
+            .read()
+            .await
+            .as_public_user(calling_user);
+        Ok(public_user.into())
     }
 
     #[cfg(feature = "sst")]
@@ -199,19 +224,118 @@ impl Entry {
         (user, calling_user, true)
     }
 
+    #[cfg(feature = "sst")]
+    pub async fn fetch_user(&self, request: ListUserRequest) -> Option<User> {
+        let users = self.users.read().await;
+        let user_option = users.get(&request.user_id);
+        if let Some(user) = user_option {
+            return Some(user.read().await.clone());
+        }
+        None
+    }
+
     #[cfg(not(feature = "sst"))]
     pub async fn is_user_loaded(&self, user: &User) -> bool {
         let users = &mut self.users.read().await;
         users.get(&user.id).is_some()
     }
-    
+
     #[cfg(not(feature = "sst"))]
     pub async fn load_user(&self, user: User) {
         let users = &mut self.users.write().await;
         users.insert(user.id.clone(), RwLock::new(user));
     }
 
-    pub async fn list_user(&self, request: ListUserRequest) -> ListUserResponse {
+    #[cfg(not(feature = "sst"))]
+    async fn does_user_exist(
+        &self,
+        user_id: String,
+        calling_user_id: String,
+    ) -> Result<bool, BecoError> {
+        let user_exists_locally = {
+            let users_read = self.users.read().await;
+            users_read.contains_key(&user_id)
+        };
+        if user_exists_locally {
+            return Ok(true);
+        }
+        let data_request = DataRequests::FetchUser(ListUserRequest { user_id: user_id.clone(), calling_user: calling_user_id.clone() });
+        let hash = calculate_hash(&data_request);
+        {
+            self.create_event(hash.clone(), Some(user_id.clone())).await;
+        }
+
+        let process_request = ProcessRequest {
+            validated_signatures: HashSet::new(),
+            failed_signatures: HashSet::new(),
+            ignore_signatures: HashSet::new(),
+            status: DataRequestType::FETCH,
+            request: data_request,
+            calling_user: calling_user_id,
+            user_id: user_id,
+            hash: hash,
+            datetime: None,
+            connected_peers: 0,
+            originator_hash: Some(hash),
+            originator_peer_id: None,
+        };
+        let user_id_result = self.send_message_wait(&process_request, hash).await;
+        if user_id_result.is_err() {
+            return Err(user_id_result.unwrap_err());
+        }
+        Ok(true)
+    }
+
+    #[cfg(feature = "sst")]
+    async fn does_user_exist(
+        &self,
+        user_id: String,
+        calling_user_id: String,
+    ) -> Result<bool, BecoError> {
+        let user_exists_locally = {
+            let users_read = self.users.read().await;
+            users_read.contains_key(&user_id)
+        };
+        if user_exists_locally {
+            return Ok(true);
+        }
+        // let data_request = DataRequests::LoadUser(None);
+        // let hash = calculate_hash(&data_request);
+        // {
+        //     self.create_event(hash.clone(), Some(user_id.clone())).await;
+        // }
+
+        // let process_request = ProcessRequest {
+        //     validated_signatures: HashSet::new(),
+        //     failed_signatures: HashSet::new(),
+        //     ignore_signatures: HashSet::new(),
+        //     status: DataRequestType::FETCH,
+        //     request: data_request,
+        //     calling_user: calling_user_id,
+        //     user_id: user_id,
+        //     hash: hash,
+        //     datetime: None,
+        //     connected_peers: 0,
+        //     originator_hash: Some(hash),
+        //     originator_peer_id: None,
+        // };
+        // let user_id_result = self.send_message_wait(&process_request, hash).await;
+        // at this point, load from DB
+        let user_id_result = Ok(());
+        if user_id_result.is_err() {
+            return Err(user_id_result.unwrap_err());
+        }
+        Ok(true)
+    }
+
+    #[cfg(not(feature = "sst"))]
+    pub async fn list_user(&self, request: ListUserRequest) -> Result<ListUserResponse, BecoError> {
+        let does_user_exist = self
+            .does_user_exist(request.user_id.clone(), request.calling_user.clone())
+            .await;
+        if does_user_exist.is_err() {
+            return Err(does_user_exist.unwrap_err());
+        }
         let users = &mut self.users.read().await;
         let public_user = self
             .get_public_user(
@@ -220,9 +344,9 @@ impl Entry {
                 request.calling_user.clone(),
             )
             .await;
-        ListUserResponse {
+        Ok(ListUserResponse {
             users: vec![public_user.into()],
-        }
+        })
     }
 
     // should be a proposal - pass in as param
@@ -230,6 +354,19 @@ impl Entry {
         &self,
         request: AddAccountRequest,
     ) -> Result<GetUserResponse, BecoError> {
+        let does_user_exist = self
+            .does_user_exist(request.user_id.clone(), request.calling_user.clone())
+            .await;
+        if does_user_exist.is_err() {
+            return Err(does_user_exist.unwrap_err());
+        }
+        let does_calling_user_exist = self
+            .does_user_exist(request.calling_user.clone(), request.calling_user.clone())
+            .await;
+        if does_calling_user_exist.is_err() {
+            return Err(does_calling_user_exist.unwrap_err());
+        }
+
         let users = &self.users.read().await;
         let calling_user = self
             .get_public_user(
@@ -257,61 +394,62 @@ impl Entry {
         Ok(user.as_public_user(&calling_user).into())
     }
 
-    pub async fn add_linked_user(
-        &self,
-        request: ModifyLinkedUserRequest,
-    ) -> Result<GetUserResponse, BecoError> {
-        let users = &mut self.users.read().await;
-        let user_option = users.get(&request.calling_user);
-        let new_user = PublicUser::new(request.user_id, None, None, None, vec![]);
-        if let Some(user) = user_option {
-            user.write().await.add_linked_user(&new_user);
-            let calling_user = self
-                .get_public_user(
-                    &users.get(&request.calling_user),
-                    request.calling_user.clone(),
-                    request.calling_user.clone(),
-                )
-                .await;
-            return Ok(calling_user.into());
-        }
-        Err(BecoError {
-            message: BAD_ACCOUNT.to_string(),
-            status: Code::NotFound,
-        })
-    }
+    // pub async fn add_linked_user(
+    //     &self,
+    //     request: ModifyLinkedUserRequest,
+    // ) -> Result<GetUserResponse, BecoError> {
+    //     let users = &mut self.users.read().await;
+    //     let user_option = users.get(&request.calling_user);
+    //     let new_user = PublicUser::new(request.user_id, None, None, None, vec![]);
+    //     if let Some(user) = user_option {
+    //         user.write().await.add_linked_user(&new_user);
+    //         let calling_user = self
+    //             .get_public_user(
+    //                 &users.get(&request.calling_user),
+    //                 request.calling_user.clone(),
+    //                 request.calling_user.clone(),
+    //             )
+    //             .await;
+    //         return Ok(calling_user.into());
+    //     }
+    //     Err(BecoError {
+    //         message: BAD_ACCOUNT.to_string(),
+    //         status: Code::NotFound,
+    //     })
+    // }
 
-    pub async fn remove_linked_user(
-        &self,
-        request: ModifyLinkedUserRequest,
-    ) -> Result<GetUserResponse, BecoError> {
-        let users = &mut self.users.read().await;
-        let calling_user = self
-            .get_public_user(
-                &users.get(&request.calling_user),
-                request.calling_user.clone(),
-                request.calling_user.clone(),
-            )
-            .await;
-        let remove_user = PublicUser::new(request.user_id.clone(), None, None, None, vec![]);
-        let user_option = users.get(&request.calling_user);
-        if let Some(user_lock) = user_option {
-            let user = &mut user_lock.write().await;
-            let result = user.remove_linked_user(&remove_user, &calling_user);
-            return if result.is_ok() {
-                Ok(user.as_public_user(&calling_user).into())
-            } else {
-                Err(BecoError {
-                    message: result.err().unwrap().message.to_string(),
-                    status: Code::PermissionDenied,
-                })
-            };
-        }
-        Err(BecoError {
-            message: BAD_ACCOUNT.to_string(),
-            status: Code::NotFound,
-        })
-    }
+    // pub async fn remove_linked_user(
+    //     &self,
+    //     request: ModifyLinkedUserRequest,
+    // ) -> Result<GetUserResponse, BecoError> {
+    //     let users = &mut self.users.read().await;
+    //     let calling_user = self
+    //         .get_public_user(
+    //             &users.get(&request.calling_user),
+    //             request.calling_user.clone(),
+    //             request.calling_user.clone(),
+    //         )
+    //         .await;
+    //     let remove_user = PublicUser::new(request.user_id.clone(), None, None, None, vec![]);
+    //     let user_option = users.get(&request.calling_user);
+    //     if let Some(user_lock) = user_option {
+    //         let user = &mut user_lock.write().await;
+    //         let result = user.remove_linked_user(&remove_user, &calling_user);
+    //         return if result.is_ok() {
+    //             Ok(user.as_public_user(&calling_user).into())
+    //         } else {
+    //             Err(BecoError {
+    //                 message: result.err().unwrap().message.to_string(),
+    //                 status: Code::PermissionDenied,
+    //             })
+    //         };
+    //     }
+    //     Err(BecoError {
+    //         message: BAD_ACCOUNT.to_string(),
+    //         status: Code::NotFound,
+    //     })
+    // }
+
     #[cfg(not(feature = "sst"))]
     pub async fn ping_event(&self, hash: &u64) {
         if let Some(event) = self.events.read().await.get(hash) {
@@ -376,8 +514,10 @@ impl Entry {
                     .propose(Some(request.name), &calling_user)
                     .await
             }
-            DataRequests::AddCryptoAccount(request) => read_user.propose_account(request, &calling_user),
-            DataRequests::AddUser(_) | DataRequests::LoadUser(_) => Err(BecoError {
+            DataRequests::AddCryptoAccount(request) => {
+                read_user.propose_account(request, &calling_user)
+            }
+            DataRequests::AddUser(_) | DataRequests::LoadUser(_) | DataRequests::FetchUser(_) => Err(BecoError {
                 message: "Invalid path to perform action".to_string(),
                 status: Code::Internal,
             }),
@@ -435,6 +575,18 @@ impl Entry {
         calling_user_id: String,
         user_id: String,
     ) -> Result<GetUserResponse, BecoError> {
+        let does_user_exist = self
+            .does_user_exist(user_id.clone(), calling_user_id.clone())
+            .await;
+        if does_user_exist.is_err() {
+            return Err(does_user_exist.unwrap_err());
+        }
+        let does_calling_user_exist = self
+            .does_user_exist(calling_user_id.clone(), calling_user_id.clone())
+            .await;
+        if does_calling_user_exist.is_err() {
+            return Err(does_calling_user_exist.unwrap_err());
+        }
         let (calling_user, result) = {
             let users = &self.users.read().await;
             let calling_user = self
@@ -488,7 +640,7 @@ impl Entry {
                 originator_hash: None,
                 originator_peer_id: None,
             };
-            self.send_message_wait(&process_request, hash, &calling_user)
+            self.send_message_return_public(&process_request, hash, &calling_user)
                 .await
         }
     }
@@ -518,6 +670,18 @@ impl Entry {
         calling_user_id: String,
         user_id: String,
     ) -> Result<(User, PublicUser), BecoError> {
+        let does_user_exist = self
+            .does_user_exist(user_id.clone(), calling_user_id.clone())
+            .await;
+        if does_user_exist.is_err() {
+            return Err(does_user_exist.unwrap_err());
+        }
+        let does_calling_user_exist = self
+            .does_user_exist(calling_user_id.clone(), calling_user_id.clone())
+            .await;
+        if does_calling_user_exist.is_err() {
+            return Err(does_calling_user_exist.unwrap_err());
+        }
         let users = self.users.read().await;
         let calling_user = self
             .get_public_user(
@@ -563,7 +727,9 @@ impl Entry {
                     .update(Some(request.name), &calling_user)
                     .await
             }
-            DataRequests::AddCryptoAccount(request) => write_user.add_account(request, &calling_user),
+            DataRequests::AddCryptoAccount(request) => {
+                write_user.add_account(request, &calling_user)
+            }
             _ => Ok(()),
         };
         if result.is_err() {

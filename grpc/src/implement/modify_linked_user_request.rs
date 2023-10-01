@@ -19,7 +19,7 @@ impl Serialize for ModifyLinkedUserRequest {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("ModifyLinkedUserRequest", 4)?;
+        let mut state = serializer.serialize_struct("ModifyLinkedUserRequest", 2)?;
         state.serialize_field("user_id", &self.user_id)?;
         state.serialize_field("calling_user", &self.calling_user)?;
         state.end()

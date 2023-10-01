@@ -40,8 +40,11 @@ impl Beco for BecoImplementation {
         request: Request<ListUserRequest>,
     ) -> Result<Response<ListUserResponse>, Status> {
         let inner_request = request.into_inner();
-        let response = self.entry.list_user(inner_request).await;
-        Ok(Response::new(response))
+        let result = self.entry.list_user(inner_request).await;
+        if let Err(err) = result {
+            return Err(Status::new(err.status, err.message));
+        }
+        Ok(Response::new(result.unwrap()))
     }
 
     async fn add_account(

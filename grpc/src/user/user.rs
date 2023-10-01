@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use tonic::Code;
@@ -6,11 +6,11 @@ use std::hash::Hash;
 
 use crate::{
     chain::chain_custody::{ChainCustody, PublicChainCustody},
-    enums::blockchain::{Blockchain, BlockchainCustody},
+    enums::{blockchain::{Blockchain, BlockchainCustody}, user_request_type::UserRequestType},
     errors::BecoError,
     proto::beco::AddAccountRequest,
     traits::key::Key,
-    user::{public_user::PublicUser, user_details::UserDetails},
+    user::{public_user::PublicUser, user_details::UserDetails}, organisation::user_organisation::UserOrganisation,
 };
 
 #[cfg(feature = "sst")]
@@ -23,6 +23,8 @@ pub struct User {
     pub user_details: UserDetails,
     sequence: u64,
     chain_accounts: HashMap<Blockchain, BlockchainCustody>,
+    // organisations: HashMap<String, UserOrganisation>,
+    // requests: HashMap<UserRequestType, HashSet<UserRequests>>
     // linked_users: HashMap<String, PublicUser>,
 }
 

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
 use crate::{
-    proto::beco::{AddAccountRequest, AddUserRequest, ModifyNameRequest, ModifyOtherNamesRequest},
+    proto::beco::{AddAccountRequest, AddUserRequest, ModifyNameRequest, ModifyOtherNamesRequest, ListUserRequest},
     user::user::User,
 };
 
@@ -64,6 +64,8 @@ pub enum DataRequestType {
     FAILED,
     #[strum(serialize = "LOAD")]
     LOAD,
+    #[strum(serialize = "FETCH")]
+    FETCH,
     #[strum(serialize = "NOT_FOUND")]
     NOTFOUND,
     #[strum(serialize = "NEW")]
@@ -78,8 +80,9 @@ pub enum DataRequests {
     OtherNames(ModifyOtherNamesRequest),
     LastName(ModifyNameRequest),
     AddUser(AddUserRequest),
-    LoadUser(User),
+    LoadUser(Option<User>),
     AddCryptoAccount(AddAccountRequest),
+    FetchUser(ListUserRequest),
     // RemoveLinkedUserRequest(ModifyLinkedUserRequest),
     // AddLinkedUserRequest(ModifyLinkedUserRequest),
     // AddLinkedUser(ModifyLinkedUserRequest),

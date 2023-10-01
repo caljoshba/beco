@@ -96,7 +96,7 @@ static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWFsEyQEyfRSZr513eqA5DoWh3S5cXCmdZhKz1U7kbLD42"
+            "12D3KooWKTRPkrnrwQfiy6o5N13jc5Q1dfDLQXKuAf7fdWDo4YRf"
                 .parse()
                 .unwrap()
         })
@@ -508,9 +508,9 @@ impl P2P {
                     let mut request: ProcessRequest = serde_json::from_value(message.clone()).unwrap();
                     request.originator_peer_id = Some(self.peer_id.to_string());
                     match request.status {
-                        DataRequestType::IGNORED => { request.ignore_signatures.insert("me".into()); },
-                        DataRequestType::INVALID => { request.failed_signatures.insert("me".into()); },
-                        DataRequestType::VALID => { request.validated_signatures.insert("me".into()); },
+                        DataRequestType::IGNORED => { request.ignore_signatures.insert(self.peer_id.to_string()); },
+                        DataRequestType::INVALID => { request.failed_signatures.insert(self.peer_id.to_string()); },
+                        DataRequestType::VALID => { request.validated_signatures.insert(self.peer_id.to_string()); },
                         _ => {},
                     };
                     let gossip_sub = match request.status {
@@ -525,6 +525,7 @@ impl P2P {
                         DataRequestType::LOAD => { &self.load_user_gossip_sub },
                         DataRequestType::NEW => { &self.new_user_gossip_sub},
                         DataRequestType::RESPONSE => { &self.response_gossip_sub},
+                        DataRequestType::FETCH => { &self.load_user_gossip_sub},
                     };
                     if let Err(e) = swarm
                         .behaviour_mut()
@@ -1014,7 +1015,13 @@ impl P2P {
                 }
                 let hash = process_request.originator_hash.unwrap();
                 match process_request.request {
-                    DataRequests::LoadUser(user) => {
+                    DataRequests::LoadUser(user_option) => {
+                        if user_option.is_none() {
+                            self.entry.fail_event(hash, None).await;
+                            self.entry.ping_event(&hash).await;
+                            return;
+                        }
+                        let user = user_option.unwrap();
                         self.entry.load_user(user.clone()).await;
                         self.entry
                             .success_event(hash, Some(user.id), process_request.status)
@@ -1025,11 +1032,19 @@ impl P2P {
                 }
             }
             DataRequestType::LOAD => match process_request.request {
-                DataRequests::LoadUser(user) => {
+                DataRequests::LoadUser(user_option) => {
+                    let hash = process_request.originator_hash.unwrap_or(0);
+                    if user_option.is_none() {
+                        if hash != 0 && self.entry.does_event_exist(hash).await {
+                            self.entry.fail_event(hash, None).await;
+                            self.entry.ping_event(&hash).await;
+                        }
+                        return;
+                    }
+                    let user = user_option.unwrap();
                     if self.entry.is_user_loaded(&user).await {
                         self.entry.load_user(user.clone()).await;
                     }
-                    let hash = process_request.originator_hash.unwrap_or(0);
                     if hash != 0 && self.entry.does_event_exist(hash).await {
                         self.entry.fail_event(hash, Some(user.id)).await;
                         self.entry.ping_event(&hash).await;
@@ -1059,7 +1074,7 @@ impl P2P {
             DataRequestType::NEW => match process_request.request {
                 DataRequests::AddUser(request) => {
                     let (user, _, complete_without_error) = self.entry.add_user(request).await;
-                    let data_request = DataRequests::LoadUser(user.clone());
+                    let data_request = DataRequests::LoadUser(Some(user.clone()));
                     let hash = calculate_hash(&data_request);
                     let status = if complete_without_error {
                         DataRequestType::RESPONSE
@@ -1074,6 +1089,42 @@ impl P2P {
                         request: data_request,
                         calling_user: process_request.calling_user,
                         user_id: user.id,
+                        hash,
+                        datetime: Some(Utc::now()),
+                        connected_peers: 0,
+                        originator_hash: process_request.originator_hash,
+                        originator_peer_id: process_request.originator_peer_id,
+                    };
+                    let result = swarm.behaviour_mut().gossipsub.publish(
+                        self.response_gossip_sub.clone(),
+                        serde_json::to_vec(&load_request).unwrap(),
+                    );
+
+                    if let Err(e) = result {
+                        println!("Error pusblishing message: {e:?}");
+                    }
+                }
+                _ => {}
+            },
+            DataRequestType::FETCH => match process_request.request {
+                DataRequests::FetchUser(request) => {
+                    let user = self.entry.fetch_user(request).await;
+                    let (status, user_id) = if user.is_none() {
+                        (DataRequestType::FAILED, "".to_string())
+                    } else {
+                        (DataRequestType::RESPONSE, user.clone().unwrap().id)
+                    };
+
+                    let data_request = DataRequests::LoadUser(user.clone());
+                    let hash = calculate_hash(&data_request);
+                    let load_request = ProcessRequest {
+                        validated_signatures: HashSet::new(),
+                        failed_signatures: HashSet::new(),
+                        ignore_signatures: HashSet::new(),
+                        status,
+                        request: data_request,
+                        calling_user: process_request.calling_user,
+                        user_id,
                         hash,
                         datetime: Some(Utc::now()),
                         connected_peers: 0,
