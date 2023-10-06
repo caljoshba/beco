@@ -4,7 +4,6 @@ use crate::{
     errors::BecoError,
     proto::beco::{
         AddAccountRequest, AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse,
-        ModifyLinkedUserRequest,
     },
     user::{public_user::PublicUser, user::User},
 };
@@ -14,7 +13,6 @@ use crate::{
     errors::BecoError,
     proto::beco::{
         AddAccountRequest, AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse,
-        ModifyLinkedUserRequest,
     },
     user::{public_user::PublicUser, user::User},
     utils::{calculate_hash, ProposeEvent},
@@ -259,7 +257,10 @@ impl Entry {
         if user_exists_locally {
             return Ok(true);
         }
-        let data_request = DataRequests::FetchUser(ListUserRequest { user_id: user_id.clone(), calling_user: calling_user_id.clone() });
+        let data_request = DataRequests::FetchUser(ListUserRequest {
+            user_id: user_id.clone(),
+            calling_user: calling_user_id.clone(),
+        });
         let hash = calculate_hash(&data_request);
         {
             self.create_event(hash.clone(), Some(user_id.clone())).await;
@@ -517,10 +518,12 @@ impl Entry {
             DataRequests::AddCryptoAccount(request) => {
                 read_user.propose_account(request, &calling_user)
             }
-            DataRequests::AddUser(_) | DataRequests::LoadUser(_) | DataRequests::FetchUser(_) => Err(BecoError {
-                message: "Invalid path to perform action".to_string(),
-                status: Code::Internal,
-            }),
+            DataRequests::AddUser(_) | DataRequests::LoadUser(_) | DataRequests::FetchUser(_) => {
+                Err(BecoError {
+                    message: "Invalid path to perform action".to_string(),
+                    status: Code::Internal,
+                })
+            }
         }
     }
 

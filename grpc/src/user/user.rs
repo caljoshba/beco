@@ -1,16 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tonic::Code;
 use std::hash::Hash;
+use tonic::Code;
 
 use crate::{
     chain::chain_custody::{ChainCustody, PublicChainCustody},
-    enums::{blockchain::{Blockchain, BlockchainCustody}, user_request_type::UserRequestType},
+    enums::blockchain::{Blockchain, BlockchainCustody},
     errors::BecoError,
     proto::beco::AddAccountRequest,
     traits::key::Key,
-    user::{public_user::PublicUser, user_details::UserDetails}, organisation::user_organisation::UserOrganisation,
+    user::{public_user::PublicUser, user_details::UserDetails},
 };
 
 #[cfg(feature = "sst")]
@@ -43,10 +43,12 @@ impl Hash for User {
         self.id.hash(state);
         self.user_details.hash(state);
         self.sequence.hash(state);
-        self.chain_accounts.iter().for_each(|(&blockchain, custody)| {
-            blockchain.hash(state);
-            custody.hash(state);
-        });
+        self.chain_accounts
+            .iter()
+            .for_each(|(&blockchain, custody)| {
+                blockchain.hash(state);
+                custody.hash(state);
+            });
         // self.linked_users.iter().for_each(|(user_id, public_user)| {
         //     user_id.hash(state);
         //     public_user.hash(state);

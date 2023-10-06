@@ -6,7 +6,7 @@ use crate::entry::Entry;
 use crate::enums::data_value::DataRequests;
 use crate::proto::beco::beco_server::Beco;
 use crate::proto::beco::{
-    AddAccountRequest, ModifyLinkedUserRequest, ModifyNameRequest, ModifyOtherNamesRequest,
+    AddAccountRequest, ModifyNameRequest, ModifyOtherNamesRequest,
 };
 use crate::proto::beco::{AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse};
 
