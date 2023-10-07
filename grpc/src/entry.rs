@@ -2,9 +2,7 @@
 use crate::{
     enums::data_value::DataRequests,
     errors::BecoError,
-    proto::beco::{
-        AddAccountRequest, AddUserRequest, GetUserResponse, ListUserRequest, ListUserResponse,
-    },
+    proto::beco::{AddAccountRequest, AddUserRequest, GetUserResponse},
     user::{public_user::PublicUser, user::User},
 };
 #[cfg(not(feature = "sst"))]
@@ -206,7 +204,7 @@ impl Entry {
     }
 
     #[cfg(feature = "sst")]
-    pub async fn add_user(&self, request: AddUserRequest) -> (User, PublicUser, bool) {
+    pub async fn add_user(&self, request: AddUserRequest) -> Result<(User, PublicUser), BecoError> {
         // need to implement a check to see if they exist first
         // need something like the national insurance number for this
         let user = User::new(Some(request.name));
@@ -219,13 +217,13 @@ impl Entry {
                 user.id.to_string(),
             )
             .await;
-        (user, calling_user, true)
+        Ok((user, calling_user))
     }
 
     #[cfg(feature = "sst")]
-    pub async fn fetch_user(&self, request: ListUserRequest) -> Option<User> {
+    pub async fn fetch_user(&self, user_id: &String) -> Option<User> {
         let users = self.users.read().await;
-        let user_option = users.get(&request.user_id);
+        let user_option = users.get(user_id);
         if let Some(user) = user_option {
             return Some(user.read().await.clone());
         }

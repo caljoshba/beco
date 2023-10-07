@@ -1,0 +1,46 @@
+version: '3'
+
+services:
+  grpc:
+    image: beco/grpc
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      target: grpc
+    volumes:
+      - ./grpc:/code
+  grpc_2:
+    image: beco/grpc
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      target: grpc
+    volumes:
+      - ./grpc:/code
+  
+  rendezvous:
+    image: beco/rendezvous
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      target: rendezvous
+    volumes:
+      - ./grpc:/code
+  
+  validator:
+    image: beco/validator
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      target: validator
+    volumes:
+      - ./grpc:/code
+  
+  sst:
+    image: beco/rendezvous
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      target: sst
+    volumes:
+      - ./grpc:/code

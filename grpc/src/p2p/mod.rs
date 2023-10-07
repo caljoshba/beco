@@ -1,5 +1,16 @@
 mod behaviour;
 
+#[cfg(any(feature = "sst"))]
+use crate::enums::data_value::DataRequests;
+#[cfg(any(feature = "grpc"))]
+use crate::{
+    entry::Entry,
+    enums::data_value::{DataRequests, DataRequestType, ProcessRequest},
+    p2p::behaviour::{BecoBehaviour, BecoBehaviourEvent},
+    utils::calculate_hash,
+};
+#[cfg(any(feature = "validator", feature = "sst"))]
+use chrono::{DateTime, Utc};
 #[cfg(any(
     feature = "grpc",
     feature = "validator",
@@ -14,6 +25,7 @@ use either::Either;
     feature = "sst"
 ))]
 use futures::prelude::*;
+#[cfg(any(feature = "grpc",))]
 use libp2p::rendezvous::Cookie;
 #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
 use libp2p::{
@@ -27,21 +39,15 @@ use libp2p::{
     tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
 };
 #[cfg(any(feature = "validator", feature = "sst"))]
-use std::{env, error::Error, fs, path::Path, str::FromStr, time::Duration};
-#[cfg(any(feature = "rendezvous", feature = "sst"))]
-use tokio::sync::OnceCell;
-
-#[cfg(any(feature = "grpc"))]
-use crate::{
-    entry::Entry,
-    enums::data_value::{DataRequestType, ProcessRequest},
-    p2p::behaviour::{BecoBehaviour, BecoBehaviourEvent},
-    utils::calculate_hash,
-};
+use libp2p::{gossipsub::IdentTopic, rendezvous::Cookie};
 #[cfg(any(feature = "grpc"))]
 use serde_json::Value;
 #[cfg(any(feature = "grpc"))]
 use std::{env, error::Error, fs, path::Path, str::FromStr, sync::Arc, time::Duration};
+#[cfg(any(feature = "validator", feature = "sst"))]
+use std::{env, error::Error, fs, path::Path, str::FromStr, time::Duration};
+#[cfg(any(feature = "rendezvous", feature = "sst"))]
+use tokio::sync::OnceCell;
 #[cfg(any(feature = "grpc"))]
 use tokio::sync::{mpsc::Receiver, OnceCell};
 
@@ -59,9 +65,11 @@ use std::collections::HashMap;
 use tokio::sync::{OnceCell, RwLock};
 
 #[cfg(any(feature = "sst"))]
-use crate::entry::Entry;
+use crate::merkle::SST;
 #[cfg(feature = "rendezvous")]
 use crate::p2p::behaviour::{RendezvousServerBehaviour, RendezvousServerBehaviourEvent};
+#[cfg(any(feature = "sst"))]
+use crate::utils::calculate_hash;
 #[cfg(any(feature = "sst"))]
 use crate::{
     enums::data_value::{DataRequestType, ProcessRequest},
@@ -78,6 +86,8 @@ use libp2p::{
     swarm::{keep_alive, SwarmBuilder, SwarmEvent},
     tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
 };
+#[cfg(any(feature = "sst"))]
+use std::collections::HashSet;
 #[cfg(any(feature = "rendezvous"))]
 use std::{error::Error, fs, path::Path, str::FromStr, time::Duration};
 
@@ -96,7 +106,7 @@ static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWKTRPkrnrwQfiy6o5N13jc5Q1dfDLQXKuAf7fdWDo4YRf"
+            "12D3KooWQ9HyQGc2k6uZ82EhnSicGxs3f4zefiHMrEfhnLNZ7747"
                 .parse()
                 .unwrap()
         })
@@ -133,7 +143,7 @@ pub struct P2P {
 pub struct P2P {
     keys: identity::Keypair,
     peer_id: PeerId,
-    entry: Entry,
+    sst: SST,
     validated_gossip_sub: gossipsub::IdentTopic,
     load_gossip_sub: gossipsub::IdentTopic,
     new_user_gossip_sub: gossipsub::IdentTopic,
@@ -204,7 +214,7 @@ impl P2P {
     pub fn new() -> Self {
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
-        let entry = Entry::new();
+        let sst = SST::new();
         let validated_gossip_sub =
             gossipsub::IdentTopic::new(DataRequestType::VALIDATED.to_string());
         let load_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::LOAD.to_string());
@@ -213,7 +223,7 @@ impl P2P {
         Self {
             keys,
             peer_id,
-            entry,
+            sst,
             validated_gossip_sub,
             load_gossip_sub,
             new_user_gossip_sub,
@@ -505,7 +515,7 @@ impl P2P {
         loop {
             tokio::select! {
                 Some(message) = self.rx_p2p.recv() => {
-                    let mut request: ProcessRequest = serde_json::from_value(message.clone()).unwrap();
+                    let mut request: ProcessRequest = serde_json::from_value(message).unwrap();
                     request.originator_peer_id = Some(self.peer_id.to_string());
                     match request.status {
                         DataRequestType::IGNORED => { request.ignore_signatures.insert(self.peer_id.to_string()); },
@@ -608,7 +618,12 @@ impl P2P {
     }
 
     #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
-    async fn discover_rendzvous(&self, swarm: &mut Swarm<BecoBehaviour>, namespace: String, cookie: Option<Cookie>) {
+    async fn discover_rendzvous(
+        &self,
+        swarm: &mut Swarm<BecoBehaviour>,
+        namespace: String,
+        cookie: Option<Cookie>,
+    ) {
         swarm.behaviour_mut().rendezvous.discover(
             Some(rendezvous::Namespace::new(namespace).unwrap()),
             cookie,
@@ -698,7 +713,8 @@ impl P2P {
                 println!("Connection established: {peer_id:?}");
                 if peer_id == rendezvous_peer_id().await.clone() {
                     self.register(swarm).await;
-                    self.discover_rendzvous(swarm, USER_NAMESPACE.to_string(), None).await;
+                    self.discover_rendzvous(swarm, USER_NAMESPACE.to_string(), None)
+                        .await;
                     // swarm.behaviour_mut().rendezvous.discover(
                     //     Some(rendezvous::Namespace::new(USER_NAMESPACE.to_string()).unwrap()),
                     //     None,
@@ -966,8 +982,6 @@ impl P2P {
         message: gossipsub::Message,
         swarm: &mut Swarm<BecoBehaviour>,
     ) {
-        use crate::enums::data_value::DataRequests;
-
         let mut process_request: ProcessRequest =
             serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
         match process_request.status {
@@ -1017,8 +1031,10 @@ impl P2P {
                 match process_request.request {
                     DataRequests::LoadUser(user_option) => {
                         if user_option.is_none() {
-                            self.entry.fail_event(hash, None).await;
-                            self.entry.ping_event(&hash).await;
+                            if self.entry.does_event_exist(hash).await {
+                                self.entry.fail_event(hash, None).await;
+                                self.entry.ping_event(&hash).await;
+                            }
                             return;
                         }
                         let user = user_option.unwrap();
@@ -1033,9 +1049,9 @@ impl P2P {
             }
             DataRequestType::LOAD => match process_request.request {
                 DataRequests::LoadUser(user_option) => {
-                    let hash = process_request.originator_hash.unwrap_or(0);
+                    let hash = process_request.originator_hash.unwrap();
                     if user_option.is_none() {
-                        if hash != 0 && self.entry.does_event_exist(hash).await {
+                        if self.entry.does_event_exist(hash).await {
                             self.entry.fail_event(hash, None).await;
                             self.entry.ping_event(&hash).await;
                         }
@@ -1062,53 +1078,37 @@ impl P2P {
         message: gossipsub::Message,
         swarm: &mut Swarm<BecoBehaviour>,
     ) {
-        use std::collections::HashSet;
-
-        use chrono::Utc;
-
-        use crate::{enums::data_value::DataRequests, utils::calculate_hash};
-
         let process_request: ProcessRequest =
             serde_json::from_str(&String::from_utf8_lossy(&message.data)).unwrap();
+        let result = self.sst.update(process_request.clone()).await;
         match process_request.status {
             DataRequestType::NEW => match process_request.request {
                 DataRequests::AddUser(request) => {
-                    let (user, _, complete_without_error) = self.entry.add_user(request).await;
-                    let data_request = DataRequests::LoadUser(Some(user.clone()));
-                    let hash = calculate_hash(&data_request);
-                    let status = if complete_without_error {
-                        DataRequestType::RESPONSE
+                    let (user_option, user_id) = if result.is_err() {
+                        (None, "".to_string())
                     } else {
-                        DataRequestType::LOAD
+                        let (user, _) = result.unwrap();
+                        (Some(user.clone()), user.id)
                     };
-                    let load_request = ProcessRequest {
-                        validated_signatures: HashSet::new(),
-                        failed_signatures: HashSet::new(),
-                        ignore_signatures: HashSet::new(),
-                        status,
-                        request: data_request,
-                        calling_user: process_request.calling_user,
-                        user_id: user.id,
-                        hash,
-                        datetime: Some(Utc::now()),
-                        connected_peers: 0,
-                        originator_hash: process_request.originator_hash,
-                        originator_peer_id: process_request.originator_peer_id,
-                    };
-                    let result = swarm.behaviour_mut().gossipsub.publish(
+                    let data_request = DataRequests::LoadUser(user_option.clone());
+                    P2P::send_process_request(
+                        swarm,
                         self.response_gossip_sub.clone(),
-                        serde_json::to_vec(&load_request).unwrap(),
-                    );
-
-                    if let Err(e) = result {
-                        println!("Error pusblishing message: {e:?}");
-                    }
+                        DataRequestType::RESPONSE,
+                        data_request,
+                        process_request.calling_user,
+                        user_id,
+                        Some(Utc::now()),
+                        process_request.originator_hash,
+                        process_request.originator_peer_id,
+                    )
+                    .await
                 }
                 _ => {}
             },
             DataRequestType::FETCH => match process_request.request {
                 DataRequests::FetchUser(request) => {
-                    let user = self.entry.fetch_user(request).await;
+                    let user = self.sst.fetch_user(&request.user_id).await;
                     let (status, user_id) = if user.is_none() {
                         (DataRequestType::FAILED, "".to_string())
                     } else {
@@ -1116,33 +1116,59 @@ impl P2P {
                     };
 
                     let data_request = DataRequests::LoadUser(user.clone());
-                    let hash = calculate_hash(&data_request);
-                    let load_request = ProcessRequest {
-                        validated_signatures: HashSet::new(),
-                        failed_signatures: HashSet::new(),
-                        ignore_signatures: HashSet::new(),
-                        status,
-                        request: data_request,
-                        calling_user: process_request.calling_user,
-                        user_id,
-                        hash,
-                        datetime: Some(Utc::now()),
-                        connected_peers: 0,
-                        originator_hash: process_request.originator_hash,
-                        originator_peer_id: process_request.originator_peer_id,
-                    };
-                    let result = swarm.behaviour_mut().gossipsub.publish(
+                    P2P::send_process_request(
+                        swarm,
                         self.response_gossip_sub.clone(),
-                        serde_json::to_vec(&load_request).unwrap(),
-                    );
-
-                    if let Err(e) = result {
-                        println!("Error pusblishing message: {e:?}");
-                    }
+                        status,
+                        data_request,
+                        process_request.calling_user,
+                        user_id,
+                        Some(Utc::now()),
+                        process_request.originator_hash,
+                        process_request.originator_peer_id,
+                    )
+                    .await
                 }
                 _ => {}
             },
             _ => {}
         };
+    }
+
+    #[cfg(feature = "sst")]
+    async fn send_process_request(
+        swarm: &mut Swarm<BecoBehaviour>,
+        topic: IdentTopic,
+        status: DataRequestType,
+        data_request: DataRequests,
+        calling_user: String,
+        user_id: String,
+        datetime: Option<DateTime<Utc>>,
+        originator_hash: Option<u64>,
+        originator_peer_id: Option<String>,
+    ) {
+        let hash = calculate_hash(&data_request);
+        let load_request = ProcessRequest {
+            validated_signatures: HashSet::new(),
+            failed_signatures: HashSet::new(),
+            ignore_signatures: HashSet::new(),
+            status,
+            request: data_request,
+            calling_user: calling_user,
+            user_id,
+            hash,
+            datetime: Some(Utc::now()),
+            connected_peers: 0,
+            originator_hash: originator_hash,
+            originator_peer_id: originator_peer_id,
+        };
+        let result = swarm
+            .behaviour_mut()
+            .gossipsub
+            .publish(topic, serde_json::to_vec(&load_request).unwrap());
+
+        if let Err(e) = result {
+            println!("Error pusblishing message: {e:?}");
+        }
     }
 }
