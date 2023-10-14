@@ -236,7 +236,6 @@ impl Entry {
         users.get(&user.id).is_some()
     }
 
-    #[cfg(not(feature = "sst"))]
     pub async fn load_user(&self, user: User) {
         let users = &mut self.users.write().await;
         users.insert(user.id.clone(), RwLock::new(user));

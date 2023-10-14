@@ -60,7 +60,17 @@ impl SST {
     }
 
     pub async fn fetch_user(&self, user_id: &String) -> Option<User> {
-        self.entry.fetch_user(user_id).await
+        let user_option = self.entry.fetch_user(user_id).await;
+        if user_option.is_some() {
+            return user_option;
+        }
+        let user_result = self.get_user_from_db(user_id).await;
+        if let Ok(user_row) = user_result {
+            let user: User = serde_json::from_value(user_row.get("details")).unwrap();
+            self.entry.load_user(user.clone()).await;
+            return Some(user);
+        }
+        None
     }
 
     pub async fn update(
