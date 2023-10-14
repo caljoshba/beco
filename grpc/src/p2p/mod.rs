@@ -814,7 +814,6 @@ impl P2P {
                     connections.clone()
                 };
 
-                let required_signatures = 1;
                 {
                     let proposal_queue = &mut self.proposal_queues.write().await;
                     if let Some(user_queue) = proposal_queue.get_mut(&process_request.user_id) {
@@ -870,7 +869,7 @@ impl P2P {
     ) -> bool {
         let processed = {
             let proposals_processing = &mut self.proposals_processing.write().await;
-            if let Some(queued_request) = proposals_processing.get_mut(&process_request.user_id) {
+            let failed_or_validated = if let Some(queued_request) = proposals_processing.get_mut(&process_request.user_id) {
                 let validated_signatures_len = queued_request.validated_signatures.len();
                 let validated_signatures_threshold = ((queued_request.connected_peers
                     - queued_request.ignore_signatures.len())
@@ -884,7 +883,7 @@ impl P2P {
                     as f32
                     * 0.2)
                     .ceil() as usize;
-                if self
+                self
                     .process_if_threshold_reached(
                         queued_request,
                         swarm,
@@ -893,12 +892,7 @@ impl P2P {
                         validated_signatures_threshold,
                         hash,
                     )
-                    .await
-                {
-                    return true;
-                }
-
-                if self
+                    .await || self
                     .process_if_threshold_reached(
                         queued_request,
                         swarm,
@@ -908,11 +902,8 @@ impl P2P {
                         hash,
                     )
                     .await
-                {
-                    return true;
-                }
-            }
-            false
+            } else { false };
+            failed_or_validated
         };
 
         if processed {
