@@ -737,6 +737,7 @@ impl Entry {
             let error = result.unwrap_err();
             Err(error)
         } else {
+            write_user.increase_sequence();
             Ok((write_user.clone(), calling_user))
         }
     }

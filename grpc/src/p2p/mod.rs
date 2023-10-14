@@ -106,7 +106,7 @@ static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWQ9HyQGc2k6uZ82EhnSicGxs3f4zefiHMrEfhnLNZ7747"
+            "12D3KooWRzsMRZLfrZcB1VhE4EJBhJw2o2AdAtqa4jVTqTbhfEPN"
                 .parse()
                 .unwrap()
         })

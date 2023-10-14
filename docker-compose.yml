@@ -44,3 +44,18 @@ services:
       target: sst
     volumes:
       - ./grpc:/code
+
+  postgres:
+    image: postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=other
+      - POSTGRES_DB=beco
+    volumes:
+      - ./init_db:/docker-entrypoint-initdb.d
+      - postgres:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+
+volumes:
+  postgres:

@@ -77,7 +77,7 @@ impl User {
         Self {
             id: id.clone(),
             chain_accounts: User::generate_default_chain_accounts(id.to_string()),
-            sequence: 0,
+            sequence: 1,
             user_details: UserDetails::new(id.to_string(), first_name),
             // linked_users: HashMap::new(),
         }

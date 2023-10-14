@@ -13,3 +13,9 @@ impl fmt::Display for BecoError {
         write!(f, "{}", self.message)
     }
 }
+
+impl From<tokio_postgres::Error> for BecoError {
+    fn from(value: tokio_postgres::Error) -> Self {
+        Self { message: value.to_string(), status: Code::Internal }
+    }
+}
