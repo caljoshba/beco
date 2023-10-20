@@ -1,0 +1,1 @@
+pub const INSERT: &str = "INSERT INTO personal.leaf (content, user_id, transaction_id) VALUES ($1, $2, $3);";

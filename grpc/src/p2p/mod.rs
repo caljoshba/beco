@@ -2,32 +2,32 @@ mod behaviour;
 
 #[cfg(any(feature = "sst"))]
 use crate::enums::data_value::DataRequests;
-#[cfg(any(feature = "grpc"))]
+#[cfg(any(feature = "user"))]
 use crate::{
     entry::Entry,
-    enums::data_value::{DataRequests, DataRequestType, ProcessRequest},
+    enums::data_value::{DataRequestType, DataRequests, ProcessRequest},
     p2p::behaviour::{BecoBehaviour, BecoBehaviourEvent},
     utils::calculate_hash,
 };
 #[cfg(any(feature = "validator", feature = "sst"))]
 use chrono::{DateTime, Utc};
 #[cfg(any(
-    feature = "grpc",
+    feature = "user",
     feature = "validator",
     feature = "rendezvous",
     feature = "sst"
 ))]
 use either::Either;
 #[cfg(any(
-    feature = "grpc",
+    feature = "user",
     feature = "validator",
     feature = "rendezvous",
     feature = "sst"
 ))]
 use futures::prelude::*;
-#[cfg(any(feature = "grpc",))]
+#[cfg(any(feature = "user",))]
 use libp2p::rendezvous::Cookie;
-#[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
+#[cfg(any(feature = "user", feature = "validator", feature = "sst"))]
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport, transport::upgrade::Version},
     gossipsub, identify, identity,
@@ -40,15 +40,15 @@ use libp2p::{
 };
 #[cfg(any(feature = "validator", feature = "sst"))]
 use libp2p::{gossipsub::IdentTopic, rendezvous::Cookie};
-#[cfg(any(feature = "grpc"))]
+#[cfg(any(feature = "user"))]
 use serde_json::Value;
-#[cfg(any(feature = "grpc"))]
+#[cfg(any(feature = "user"))]
 use std::{env, error::Error, fs, path::Path, str::FromStr, sync::Arc, time::Duration};
 #[cfg(any(feature = "validator", feature = "sst"))]
 use std::{env, error::Error, fs, path::Path, str::FromStr, time::Duration};
 #[cfg(any(feature = "rendezvous", feature = "sst"))]
 use tokio::sync::OnceCell;
-#[cfg(any(feature = "grpc"))]
+#[cfg(any(feature = "user"))]
 use tokio::sync::{mpsc::Receiver, OnceCell};
 
 #[cfg(feature = "validator")]
@@ -106,14 +106,14 @@ static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWRzsMRZLfrZcB1VhE4EJBhJw2o2AdAtqa4jVTqTbhfEPN"
+            "12D3KooWREcoZWcLYnDAnYCHL3XR7MKLNkFo7XAPnEtk6siGg4By"
                 .parse()
                 .unwrap()
         })
         .await
 }
 
-#[cfg(feature = "grpc")]
+#[cfg(feature = "user")]
 pub struct P2P {
     keys: identity::Keypair,
     peer_id: PeerId,
@@ -157,7 +157,7 @@ pub struct P2P {
 }
 
 impl P2P {
-    #[cfg(feature = "grpc")]
+    #[cfg(feature = "user")]
     pub fn new(entry: &'static Arc<Entry>, rx_p2p: Receiver<Value>) -> Self {
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
@@ -367,7 +367,7 @@ impl P2P {
         }
     }
 
-    #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
+    #[cfg(any(feature = "user", feature = "validator", feature = "sst"))]
     pub async fn create_swarm(&self) -> Result<Swarm<BecoBehaviour>, Box<dyn Error>> {
         // env_logger::init();
 
@@ -430,7 +430,7 @@ impl P2P {
         Ok(swarm)
     }
 
-    #[cfg(feature = "grpc")]
+    #[cfg(feature = "user")]
     fn subscribe_to_topics(&self, behaviour: &mut BecoBehaviour) {
         println!("Subscribing to {:?}", self.propose_gossip_sub);
         behaviour
@@ -507,7 +507,7 @@ impl P2P {
             .unwrap();
     }
 
-    #[cfg(feature = "grpc")]
+    #[cfg(feature = "user")]
     pub async fn loop_swarm(&mut self) {
         let mut swarm = self.create_swarm().await.unwrap();
         let mut discover_tick = tokio::time::interval(Duration::from_secs(30));
@@ -617,7 +617,7 @@ impl P2P {
         }
     }
 
-    #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
+    #[cfg(any(feature = "user", feature = "validator", feature = "sst"))]
     async fn discover_rendzvous(
         &self,
         swarm: &mut Swarm<BecoBehaviour>,
@@ -632,7 +632,7 @@ impl P2P {
         );
     }
 
-    #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
+    #[cfg(any(feature = "user", feature = "validator", feature = "sst"))]
     async fn register(&self, swarm: &mut Swarm<BecoBehaviour>) {
         let result = swarm.behaviour_mut().rendezvous.register(
             rendezvous::Namespace::new(USER_NAMESPACE.to_string()).unwrap(),
@@ -647,7 +647,7 @@ impl P2P {
         }
     }
 
-    #[cfg(any(feature = "grpc", feature = "validator", feature = "sst"))]
+    #[cfg(any(feature = "user", feature = "validator", feature = "sst"))]
     async fn process_swarm_events(
         &self,
         event: SwarmEvent<BecoBehaviourEvent, THandlerErr<BecoBehaviour>>,
@@ -869,7 +869,9 @@ impl P2P {
     ) -> bool {
         let processed = {
             let proposals_processing = &mut self.proposals_processing.write().await;
-            let failed_or_validated = if let Some(queued_request) = proposals_processing.get_mut(&process_request.user_id) {
+            let failed_or_validated = if let Some(queued_request) =
+                proposals_processing.get_mut(&process_request.user_id)
+            {
                 let validated_signatures_len = queued_request.validated_signatures.len();
                 let validated_signatures_threshold = ((queued_request.connected_peers
                     - queued_request.ignore_signatures.len())
@@ -883,26 +885,28 @@ impl P2P {
                     as f32
                     * 0.2)
                     .ceil() as usize;
-                self
-                    .process_if_threshold_reached(
-                        queued_request,
-                        swarm,
-                        DataRequestType::VALIDATED,
-                        validated_signatures_len,
-                        validated_signatures_threshold,
-                        hash,
-                    )
-                    .await || self
-                    .process_if_threshold_reached(
-                        queued_request,
-                        swarm,
-                        DataRequestType::FAILED,
-                        failed_signatures_len,
-                        failed_signatures_threshold,
-                        hash,
-                    )
-                    .await
-            } else { false };
+                self.process_if_threshold_reached(
+                    queued_request,
+                    swarm,
+                    DataRequestType::VALIDATED,
+                    validated_signatures_len,
+                    validated_signatures_threshold,
+                    hash,
+                )
+                .await
+                    || self
+                        .process_if_threshold_reached(
+                            queued_request,
+                            swarm,
+                            DataRequestType::FAILED,
+                            failed_signatures_len,
+                            failed_signatures_threshold,
+                            hash,
+                        )
+                        .await
+            } else {
+                false
+            };
             failed_or_validated
         };
 
@@ -967,7 +971,7 @@ impl P2P {
         }
     }
 
-    #[cfg(feature = "grpc")]
+    #[cfg(feature = "user")]
     async fn process_gossipsub(
         &self,
         message: gossipsub::Message,

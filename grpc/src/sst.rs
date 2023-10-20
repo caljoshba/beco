@@ -3,6 +3,7 @@
 #![allow(non_snake_case)]
 
 mod chain;
+mod db;
 mod entry;
 mod enums;
 mod errors;

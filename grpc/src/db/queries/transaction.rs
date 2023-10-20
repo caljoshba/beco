@@ -1,0 +1,1 @@
+pub const INSERT: &str = "INSERT INTO personal.transaction (transaction, user_id, sequence_number, merkle_root_hex) VALUES ($1, $2, $3, $4) RETURNING id;";

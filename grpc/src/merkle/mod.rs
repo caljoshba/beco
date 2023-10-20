@@ -14,15 +14,13 @@ mod transaction;
 
 use std::collections::HashMap;
 
-use deadpool_postgres::{Config, Pool, PoolConfig, Runtime};
 use rs_merkle::{algorithms::Sha256, Hasher, MerkleTree};
 use serde_json::Value;
 use tokio::sync::RwLock;
-use tokio_postgres::{NoTls, Row};
 use tonic::Code;
-use uuid::Uuid;
 
 use crate::{
+    db::DB,
     entry::Entry,
     enums::data_value::{DataRequests, ProcessRequest},
     errors::BecoError,
@@ -37,25 +35,17 @@ pub struct SST {
     trees: RwLock<HashMap<String, RwLock<MerkleTree<Sha256>>>>,
     // entry to perform update and export current state
     entry: Entry,
-    pool: Pool,
+    db: DB,
 }
 
 #[cfg(feature = "sst")]
 impl SST {
     pub fn new() -> Self {
-        let pool_config = PoolConfig::new(10);
-        let mut pg_config = Config::new();
-        pg_config.dbname = Some("beco".to_string());
-        pg_config.host = Some("localhost".to_string());
-        pg_config.port = Some(5432);
-        pg_config.user = Some("beco".to_string());
-        pg_config.password = Some("during".to_string());
-        pg_config.pool = Some(pool_config);
-        let pool = pg_config.create_pool(Some(Runtime::Tokio1), NoTls).unwrap();
+        let db = DB::new();
         Self {
             trees: RwLock::new(HashMap::new()),
             entry: Entry::new(),
-            pool,
+            db,
         }
     }
 
@@ -64,9 +54,8 @@ impl SST {
         if user_option.is_some() {
             return user_option;
         }
-        let user_result = self.get_user_from_db(user_id).await;
-        if let Ok(user_row) = user_result {
-            let user: User = serde_json::from_value(user_row.get("details")).unwrap();
+        let user_result = self.db.load_user(user_id).await;
+        if let Ok(user) = user_result {
             self.entry.load_user(user.clone()).await;
             return Some(user);
         }
@@ -168,8 +157,7 @@ impl SST {
             trees.contains_key(&user.id)
         };
         if !tree_loaded {
-            self.load_merkle_tree_for_user(user.id.clone(), sequence - 1)
-                .await;
+            self.load_merkle_tree_for_user(user.id.clone()).await;
         }
         // now get and update merkle tree
 
@@ -184,57 +172,17 @@ impl SST {
             .await
     }
 
-    async fn load_merkle_tree_for_user(&self, user_id: String, sequence: u64) {
+    async fn load_merkle_tree_for_user(&self, user_id: String) {
         // should load from DB first but will implement later on
-        let client = self.pool.get().await.unwrap();
-        let select_merkle_statement = client
-            .prepare_cached(
-                "SELECT
-        t.merkle_root_hex,
-        array_agg(leaves.content) AS leaves
-       FROM personal.user u
-       INNER JOIN personal.transaction t
-       ON t.user_id = u.id
-       INNER JOIN (
-           SELECT
-             content,
-             user_id
-         FROM
-         personal.leaf
-         ORDER BY created_at ASC
-       ) leaves
-       ON leaves.user_id = u.id
-       WHERE u.id=$1
-       GROUP BY t.merkle_root_hex;",
-            )
-            .await
-            .unwrap();
-        let row_result = client
-            .query_one(&select_merkle_statement, &[&user_id])
-            .await;
-        let tree = if row_result.is_err() {
+        let tree_result = self.db.load_merkle(&user_id).await;
+        let tree = if tree_result.is_err() {
             MerkleTree::new()
         } else {
-            let row = row_result.unwrap();
-            let leaves: Vec<&[u8]> = row.get("leaves");
-            let merkle_leaves: Vec<[u8; 32]> = leaves
-                .iter()
-                .map(|&leaf| leaf[0..32].try_into().unwrap())
-                .collect();
-            MerkleTree::from_leaves(&merkle_leaves)
+            let leaves = tree_result.unwrap();
+            MerkleTree::from_leaves(&leaves)
         };
         let mut trees = self.trees.write().await;
         trees.insert(user_id, RwLock::new(tree));
-    }
-
-    async fn get_user_from_db(&self, user_id: &String) -> Result<Row, tokio_postgres::Error> {
-        let user_uuid = Uuid::parse_str(&user_id).unwrap();
-        let client = self.pool.get().await.unwrap();
-        let select_user_statement = client
-            .prepare_cached("SELECT id, details, sequence_number FROM personal.user WHERE id=$1")
-            .await
-            .unwrap();
-        client.query_one(&select_user_statement, &[&user_uuid]).await
     }
 
     async fn save_user_request_and_merkle(
@@ -255,30 +203,6 @@ impl SST {
             }
         };
 
-        let mut client = self.pool.get().await.unwrap();
-        let insert_user_statement = client
-            .prepare_cached(
-                "INSERT INTO personal.user (id, details, sequence_number) VALUES ($1, $2, $3);",
-            )
-            .await
-            .unwrap();
-        let update_user_statement = client
-            .prepare_cached("UPDATE personal.user SET details=$2, sequence_number=$3 WHERE id=$1;")
-            .await
-            .unwrap();
-        let insert_transaction_statement = client
-            .prepare_cached(
-                "INSERT INTO personal.transaction (transaction, user_id, sequence_number, merkle_root_hex) VALUES ($1, $2, $3, $4) RETURNING id;",
-            )
-            .await
-            .unwrap();
-        let insert_leaf_statement = client
-            .prepare_cached(
-                "INSERT INTO personal.leaf (content, user_id, transaction_id) VALUES ($1, $2, $3);",
-            )
-            .await
-            .unwrap();
-
         if leaves_option.is_none() || root_option.is_none() {
             return Err(BecoError {
                 message: "Merkle tree does not exist".to_string(),
@@ -286,75 +210,18 @@ impl SST {
             });
         }
 
-        let user_id = Uuid::parse_str(&user.id).unwrap();
-
-        let db_transaction = client.transaction().await.unwrap();
-        let existing_user_result = self.get_user_from_db(&user.id).await;
-        println!("{existing_user_result:?}");
-        let user_upsert_result = if existing_user_result.is_err() {
-            db_transaction
-                .query(
-                    &insert_user_statement,
-                    &[&user_id, &serialised_user, &sequence],
-                )
-                .await
-        } else {
-            db_transaction
-                .query(
-                    &update_user_statement,
-                    &[&user_id, &serialised_user, &sequence],
-                )
-                .await
-        };
-
-        if user_upsert_result.is_err() {
-            let err = user_upsert_result.unwrap_err();
-            println!("{err:?}");
-            return Err(err.into());
-        }
-
         let leaves = leaves_option.unwrap();
         let root = root_option.unwrap();
 
-        let transaction_insert_result = db_transaction
-            .query(
-                &insert_transaction_statement,
-                &[&serialised_transaction, &user_id, &sequence, &root],
+        self.db
+            .save_user_request_and_merkle(
+                &user.id,
+                &serialised_user,
+                &serialised_transaction,
+                sequence,
+                &root,
+                leaves,
             )
-            .await;
-        if transaction_insert_result.is_err() {
-            return Err(transaction_insert_result.unwrap_err().into());
-        }
-
-        let transaction_insert_rows = transaction_insert_result.unwrap();
-
-        if transaction_insert_rows.len() == 0 {
-            println!("{transaction_insert_rows:?}");
-            return Err(BecoError {
-                message: "Problem inserting merkle into DB".to_string(),
-                status: Code::Internal,
-            });
-        }
-        let row = &transaction_insert_rows[0];
-        let transaction_id = row.get::<&str, i64>("id");
-
-        let latest_leaf: &[u8] = leaves.last().unwrap();
-        let insert_leaf_result = db_transaction
-            .query(
-                &insert_leaf_statement,
-                &[&latest_leaf, &user_id, &transaction_id],
-            )
-            .await;
-
-        if insert_leaf_result.is_err() {
-            return Err(insert_leaf_result.unwrap_err().into());
-        }
-
-        let commit_result = db_transaction.commit().await;
-        if commit_result.is_err() {
-            return Err(commit_result.unwrap_err().into());
-        }
-
-        Ok(())
+            .await
     }
 }

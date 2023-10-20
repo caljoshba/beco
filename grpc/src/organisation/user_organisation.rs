@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 // use uuid::Uuid;
 
 use crate::enums::oragnisaton_relation::OrganisationRelation;
 
-#[cfg(any(feature = "validator", feature = "sst", feature = "grpc"))]
+#[cfg(any(feature = "validator", feature = "sst", feature = "user"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOrganisation {
     pub id: String,

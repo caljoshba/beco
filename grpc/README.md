@@ -19,7 +19,7 @@ https://github.com/libp2p/specs/blob/master/rendezvous/README.md
 
 
 cargo run --release --bin rendezvous --features="rendezvous"
-cargo run --release --bin grpc --features="grpc"
+cargo run --release --bin user --features="user"
 P2P=7003 cargo run --release --bin validator --features="validator"
 P2P=7004 cargo run --release --bin sst --features="sst"
 

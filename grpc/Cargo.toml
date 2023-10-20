@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-name = "grpc"
-path = "src/grpc.rs"
-required-features = ["grpc"]
+name = "user"
+path = "src/user_grpc.rs"
+required-features = ["user"]
 
 [[bin]]
 name = "validator"
@@ -28,7 +28,7 @@ required-features = ["rendezvous"]
 
 [features]
 # default = ["grpc"]
-grpc = []
+user = []
 validator = []
 sst = []
 rendezvous = []

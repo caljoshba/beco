@@ -96,12 +96,6 @@ impl Entry {
     }
     #[cfg(not(feature = "sst"))]
     pub async fn add_user(&self, request: AddUserRequest) -> Result<GetUserResponse, BecoError> {
-        // let does_calling_user_exist = self
-        //     .does_user_exist(request.calling_user.clone(), request.calling_user.clone())
-        //     .await;
-        // if does_calling_user_exist.is_err() {
-        //     return Err(does_calling_user_exist.unwrap_err());
-        // }
         let calling_user = {
             let users = self.users.read().await;
             self.get_public_user(

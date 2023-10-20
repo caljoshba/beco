@@ -40,7 +40,7 @@ mod beco_proto {
 }
 
 static ENTRY: OnceCell<Arc<Entry>> = OnceCell::const_new();
-#[cfg(feature = "grpc")]
+#[cfg(feature = "user")]
 async fn get_entry(
     tx_p2p: Sender<Value>,
     tx_grpc: Sender<Value>,
@@ -50,7 +50,7 @@ async fn get_entry(
         .get_or_init(|| async { Arc::new(Entry::new(tx_p2p, tx_grpc, rx_grpc)) })
         .await
 }
-#[cfg(feature = "grpc")]
+#[cfg(feature = "user")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // https://tokio.rs/tokio/tutorial/channels
