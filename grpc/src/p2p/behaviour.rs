@@ -1,7 +1,7 @@
 #[cfg(not(feature = "rendezvous"))]
-use libp2p::{gossipsub, swarm::{NetworkBehaviour, keep_alive}, identify, ping, rendezvous};
+use libp2p::{gossipsub, identify, ping, rendezvous, swarm::NetworkBehaviour};
 #[cfg(feature = "rendezvous")]
-use libp2p::{swarm::{NetworkBehaviour, keep_alive}, identify, ping, rendezvous};
+use libp2p::{identify, ping, rendezvous, swarm::NetworkBehaviour};
 
 #[cfg(not(feature = "rendezvous"))]
 #[derive(NetworkBehaviour)]
@@ -11,7 +11,6 @@ pub struct BecoBehaviour {
     pub identify: identify::Behaviour,
     pub ping: ping::Behaviour,
     pub rendezvous: rendezvous::client::Behaviour,
-    pub keep_alive: keep_alive::Behaviour,
 }
 
 #[cfg(not(feature = "rendezvous"))]
@@ -28,7 +27,6 @@ pub enum BecoBehaviourEvent {
     Identify(identify::Event),
     Ping(ping::Event),
     Rendezvous(rendezvous::client::Event),
-    KeepAlive(void::Void),
 }
 
 #[cfg(not(feature = "rendezvous"))]
@@ -59,13 +57,6 @@ impl From<rendezvous::client::Event> for BecoBehaviourEvent {
     }
 }
 
-#[cfg(not(feature = "rendezvous"))]
-impl From<void::Void> for BecoBehaviourEvent {
-    fn from(event: void::Void) -> Self {
-        BecoBehaviourEvent::KeepAlive(event)
-    }
-}
-
 #[cfg(feature = "rendezvous")]
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "RendezvousServerBehaviourEvent")]
@@ -73,7 +64,6 @@ pub struct RendezvousServerBehaviour {
     pub identify: identify::Behaviour,
     pub ping: ping::Behaviour,
     pub rendezvous: rendezvous::server::Behaviour,
-    pub keep_alive: keep_alive::Behaviour,
 }
 
 #[cfg(feature = "rendezvous")]
@@ -82,7 +72,6 @@ pub enum RendezvousServerBehaviourEvent {
     Identify(identify::Event),
     Ping(ping::Event),
     Rendezvous(rendezvous::server::Event),
-    KeepAlive(void::Void),
 }
 
 #[cfg(feature = "rendezvous")]
@@ -103,12 +92,5 @@ impl From<ping::Event> for RendezvousServerBehaviourEvent {
 impl From<rendezvous::server::Event> for RendezvousServerBehaviourEvent {
     fn from(event: rendezvous::server::Event) -> Self {
         RendezvousServerBehaviourEvent::Rendezvous(event)
-    }
-}
-
-#[cfg(feature = "rendezvous")]
-impl From<void::Void> for RendezvousServerBehaviourEvent {
-    fn from(event: void::Void) -> Self {
-        RendezvousServerBehaviourEvent::KeepAlive(event)
     }
 }

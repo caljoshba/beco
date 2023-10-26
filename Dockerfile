@@ -15,9 +15,9 @@ FROM base AS rendezvous
 
 CMD [ "cargo", "run", "--release", "--bin", "rendezvous", "--features=rendezvous" ]
 
-FROM base AS grpc
+FROM base AS user
 
-CMD [ "cargo", "run", "--release", "--bin", "grpc", "--features=grpc" ]
+CMD [ "cargo", "run", "--release", "--bin", "user", "--features=user" ]
 
 FROM base AS validator
 

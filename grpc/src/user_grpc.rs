@@ -3,6 +3,7 @@
 #![allow(non_snake_case)]
 
 mod chain;
+mod config;
 mod entry;
 mod enums;
 mod errors;
@@ -19,13 +20,15 @@ mod user;
 mod utils;
 mod xrpl;
 
+use config::Config;
 use entry::Entry;
+use envconfig::Envconfig;
 use futures::future::join;
 use p2p::P2P;
 use proto::beco::beco_server::BecoServer;
 use serde_json::Value;
 use server::BecoImplementation;
-use std::{env, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     OnceCell,
@@ -53,6 +56,7 @@ async fn get_entry(
 #[cfg(feature = "user")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::init_from_env().unwrap();
     // https://tokio.rs/tokio/tutorial/channels
     let (tx_p2p, rx_p2p) = mpsc::channel::<Value>(32);
     let (tx_grpc, rx_grpc) = mpsc::channel::<Value>(32);
@@ -63,11 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     };
 
-    let port: u16 = env::var("PORT")
-        .unwrap_or("9001".to_string())
-        .parse::<u16>()
-        .unwrap();
-    let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
+    let addr: std::net::SocketAddr = ([0, 0, 0, 0], config.grpc_port).into();
     let grpc_server = async move {
         let wallet = BecoImplementation::new(entry.clone());
 

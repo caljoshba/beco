@@ -1,6 +1,9 @@
 mod queries;
+mod config;
 
+use config::Config as db_config;
 use deadpool_postgres::{Config, Object, Pool, PoolConfig, Runtime};
+use envconfig::Envconfig;
 use serde_json::Value;
 use tokio_postgres::{NoTls, Statement};
 use tonic::Code;
@@ -10,21 +13,24 @@ use crate::{errors::BecoError, user::user::User};
 
 pub struct DB {
     pool: Pool,
+    config: db_config
 }
 
 impl DB {
     pub fn new() -> Self {
-        let pool_config = PoolConfig::new(10);
+        let config = db_config::init_from_env().unwrap();
+        let clone_config = config.clone();
+        let pool_config = PoolConfig::new(config.pool_size);
         let mut pg_config = Config::new();
-        pg_config.dbname = Some("beco".to_string());
-        pg_config.host = Some("localhost".to_string());
-        pg_config.port = Some(5432);
-        pg_config.user = Some("beco".to_string());
-        pg_config.password = Some("during".to_string());
+        pg_config.dbname = Some(config.database);
+        pg_config.host = Some(config.host);
+        pg_config.port = Some(config.port);
+        pg_config.user = Some(config.user);
+        pg_config.password = Some(config.password);
         pg_config.pool = Some(pool_config);
         let pool = pg_config.create_pool(Some(Runtime::Tokio1), NoTls).unwrap();
 
-        Self { pool }
+        Self { pool, config: clone_config }
     }
 
     pub async fn load_user(&self, user_id: &String) -> Result<User, BecoError> {

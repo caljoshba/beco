@@ -1,4 +1,8 @@
 mod behaviour;
+#[cfg(any(feature = "user", feature = "validator", feature = "sst"))]
+mod config;
+#[cfg(feature = "rendezvous")]
+mod rendezvous_config;
 
 #[cfg(any(feature = "sst"))]
 use crate::enums::data_value::DataRequests;
@@ -11,6 +15,8 @@ use crate::{
 };
 #[cfg(any(feature = "validator", feature = "sst"))]
 use chrono::{DateTime, Utc};
+#[cfg(any(feature = "user", feature = "validator", feature = "sst"))]
+use config::Config;
 #[cfg(any(
     feature = "user",
     feature = "validator",
@@ -35,17 +41,19 @@ use libp2p::{
     noise, ping,
     pnet::{PnetConfig, PreSharedKey},
     rendezvous,
-    swarm::{keep_alive, SwarmBuilder, SwarmEvent, THandlerErr},
-    tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
+    swarm::{SwarmEvent, THandlerErr},
+    tcp, yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
 #[cfg(any(feature = "validator", feature = "sst"))]
 use libp2p::{gossipsub::IdentTopic, rendezvous::Cookie};
+#[cfg(feature = "rendezvous")]
+use rendezvous_config::Config;
 #[cfg(any(feature = "user"))]
 use serde_json::Value;
 #[cfg(any(feature = "user"))]
-use std::{env, error::Error, fs, path::Path, str::FromStr, sync::Arc, time::Duration};
+use std::{error::Error, fs, path::Path, str::FromStr, sync::Arc, time::Duration};
 #[cfg(any(feature = "validator", feature = "sst"))]
-use std::{env, error::Error, fs, path::Path, str::FromStr, time::Duration};
+use std::{error::Error, fs, path::Path, str::FromStr, time::Duration};
 #[cfg(any(feature = "rendezvous", feature = "sst"))]
 use tokio::sync::OnceCell;
 #[cfg(any(feature = "user"))]
@@ -83,21 +91,18 @@ use libp2p::{
     noise, ping,
     pnet::{PnetConfig, PreSharedKey},
     rendezvous,
-    swarm::{keep_alive, SwarmBuilder, SwarmEvent},
-    tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
+    swarm::SwarmEvent,
+    tcp, yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
 #[cfg(any(feature = "sst"))]
 use std::collections::HashSet;
 #[cfg(any(feature = "rendezvous"))]
 use std::{error::Error, fs, path::Path, str::FromStr, time::Duration};
 
+use envconfig::Envconfig;
+
 // https://github.com/libp2p/rust-libp2p/blob/master/examples/ipfs-private/src/main.rs
-static RENDEZVOUS_POINT_ADDRESS: OnceCell<Multiaddr> = OnceCell::const_new();
-async fn rendezvous_address() -> &'static Multiaddr {
-    RENDEZVOUS_POINT_ADDRESS
-        .get_or_init(|| async { "/ip4/127.0.0.1/tcp/62649".parse::<Multiaddr>().unwrap() })
-        .await
-}
+
 const USER_NAMESPACE: &str = "user";
 const ORG_NAMESPACE: &str = "organisation";
 const GOV_NAMESPACE: &str = "government";
@@ -106,7 +111,7 @@ static RENDEZVOUS_PEER_ID: OnceCell<PeerId> = OnceCell::const_new();
 async fn rendezvous_peer_id() -> &'static PeerId {
     RENDEZVOUS_PEER_ID
         .get_or_init(|| async {
-            "12D3KooWREcoZWcLYnDAnYCHL3XR7MKLNkFo7XAPnEtk6siGg4By"
+            "12D3KooWRqPaSQMvSEx9swLtybQRQ4rV68hPu8iYQNqLLtXo5ffX"
                 .parse()
                 .unwrap()
         })
@@ -125,6 +130,8 @@ pub struct P2P {
     load_user_gossip_sub: gossipsub::IdentTopic,
     new_user_gossip_sub: gossipsub::IdentTopic,
     response_gossip_sub: gossipsub::IdentTopic,
+    config: Config,
+    rendezvous_address: Multiaddr,
 }
 
 #[cfg(feature = "validator")]
@@ -137,6 +144,8 @@ pub struct P2P {
     // need to add an expiration datetime to each of these
     proposals_processing: RwLock<HashMap<String, ProcessRequest>>,
     proposal_queues: RwLock<HashMap<String, RwLock<Vec<ProcessRequest>>>>,
+    config: Config,
+    rendezvous_address: Multiaddr,
 }
 
 #[cfg(feature = "sst")]
@@ -148,17 +157,21 @@ pub struct P2P {
     load_gossip_sub: gossipsub::IdentTopic,
     new_user_gossip_sub: gossipsub::IdentTopic,
     response_gossip_sub: gossipsub::IdentTopic,
+    config: Config,
+    rendezvous_address: Multiaddr,
 }
 
 #[cfg(feature = "rendezvous")]
 pub struct P2P {
     keys: identity::Keypair,
     peer_id: PeerId,
+    config: Config,
 }
 
 impl P2P {
     #[cfg(feature = "user")]
     pub fn new(entry: &'static Arc<Entry>, rx_p2p: Receiver<Value>) -> Self {
+        let config = Config::init_from_env().unwrap();
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
         let propose_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::PROPOSE.to_string());
@@ -169,6 +182,11 @@ impl P2P {
         let load_user_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::LOAD.to_string());
         let new_user_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::NEW.to_string());
         let response_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::RESPONSE.to_string());
+        let rendezvous_address = config
+            .rendezvous_address
+            .clone()
+            .parse::<Multiaddr>()
+            .unwrap();
         Self {
             keys,
             peer_id,
@@ -180,11 +198,14 @@ impl P2P {
             load_user_gossip_sub,
             new_user_gossip_sub,
             response_gossip_sub,
+            config,
+            rendezvous_address,
         }
     }
 
     #[cfg(feature = "validator")]
     pub fn new() -> Self {
+        let config = Config::init_from_env().unwrap();
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
         let propose_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::PROPOSE.to_string());
@@ -192,6 +213,11 @@ impl P2P {
             gossipsub::IdentTopic::new(DataRequestType::CORROBORATE.to_string());
         let validated_gossip_sub =
             gossipsub::IdentTopic::new(DataRequestType::VALIDATED.to_string());
+        let rendezvous_address = config
+            .rendezvous_address
+            .clone()
+            .parse::<Multiaddr>()
+            .unwrap();
         Self {
             keys,
             peer_id,
@@ -200,18 +226,26 @@ impl P2P {
             validated_gossip_sub,
             proposals_processing: RwLock::new(HashMap::new()),
             proposal_queues: RwLock::new(HashMap::new()),
+            config,
+            rendezvous_address,
         }
     }
 
     #[cfg(feature = "rendezvous")]
     pub fn new() -> Self {
+        let config = Config::init_from_env().unwrap();
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
-        Self { keys, peer_id }
+        Self {
+            keys,
+            peer_id,
+            config,
+        }
     }
 
     #[cfg(feature = "sst")]
     pub fn new() -> Self {
+        let config = Config::init_from_env().unwrap();
         let keys = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
         let sst = SST::new();
@@ -220,6 +254,11 @@ impl P2P {
         let load_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::LOAD.to_string());
         let new_user_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::NEW.to_string());
         let response_gossip_sub = gossipsub::IdentTopic::new(DataRequestType::RESPONSE.to_string());
+        let rendezvous_address = config
+            .rendezvous_address
+            .clone()
+            .parse::<Multiaddr>()
+            .unwrap();
         Self {
             keys,
             peer_id,
@@ -228,6 +267,8 @@ impl P2P {
             load_gossip_sub,
             new_user_gossip_sub,
             response_gossip_sub,
+            config,
+            rendezvous_address,
         }
     }
 
@@ -302,7 +343,7 @@ impl P2P {
         }
 
         // Set up a an encrypted DNS-enabled TCP Transport over and Yamux protocol
-        let transport = self.build_transport(self.keys.clone(), psk);
+        // let transport = self.build_transport(self.keys.clone(), psk);
 
         let behaviour = RendezvousServerBehaviour {
             identify: identify::Behaviour::new(identify::Config::new(
@@ -311,15 +352,39 @@ impl P2P {
             )),
             ping: ping::Behaviour::new(ping::Config::new()),
             rendezvous: rendezvous::server::Behaviour::new(rendezvous::server::Config::default()),
-            keep_alive: keep_alive::Behaviour,
         };
 
         // Create a Swarm to manage peers and events
-        let mut swarm =
-            SwarmBuilder::with_tokio_executor(transport, behaviour, self.peer_id).build();
+        let mut swarm = SwarmBuilder::with_existing_identity(self.keys.clone())
+            .with_tokio()
+            .with_tcp(
+                Default::default(),
+                (libp2p_tls::Config::new, libp2p::noise::Config::new),
+                libp2p::yamux::Config::default,
+            )?
+            .with_quic()
+            // .with_other_transport(|_key| transport)?
+            .with_dns()?
+            .with_behaviour(|_key| behaviour)?
+            .build();
 
-        swarm.listen_on(rendezvous_address().await.clone())?;
-        swarm.add_external_address(rendezvous_address().await.clone());
+        let addr = format!(
+            "/ip4/0.0.0.0/tcp/{}",
+            self.config.p2p_port,
+        )
+        .parse::<Multiaddr>()
+        .unwrap();
+        let ext_addr = format!(
+            "/ip4/{}/tcp/{}/p2p/{}",
+            self.config.external_host,
+            self.config.p2p_port,
+            self.keys.public().to_peer_id()
+        )
+        .parse::<Multiaddr>()
+        .unwrap();
+
+        swarm.listen_on(addr.clone())?;
+        swarm.add_external_address(ext_addr.clone());
         println!("Peer ID: {:?}", self.peer_id);
 
         Ok(swarm)
@@ -327,12 +392,21 @@ impl P2P {
 
     #[cfg(feature = "rendezvous")]
     pub async fn loop_swarm(&mut self) {
-        let mut swarm = self.create_swarm().await.unwrap();
+        let mut swarm: Swarm<RendezvousServerBehaviour> = self.create_swarm().await.unwrap();
         loop {
             tokio::select! {
                 // need to cleanup registrations when a connection closes
                 event = swarm.select_next_some() => {
                     match event {
+                        SwarmEvent::NewListenAddr { address, .. } => {
+                            println!("Listening on {address:?}");
+                        }
+                        SwarmEvent::IncomingConnectionError { error, .. } => {
+                            println!("{error:?}");
+                        }
+                        SwarmEvent::OutgoingConnectionError { error, .. } => {
+                            println!("{error:?}");
+                        }
                         SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                             println!("Connected to {}", peer_id);
                         }
@@ -384,7 +458,7 @@ impl P2P {
         }
 
         // Set up a an encrypted DNS-enabled TCP Transport over and Yamux protocol
-        let transport = self.build_transport(self.keys.clone(), psk);
+        // let transport = self.build_transport(self.keys.clone(), psk);
 
         // We create a custom network behaviour that combines gossipsub, ping and identify.
 
@@ -404,28 +478,38 @@ impl P2P {
             )),
             ping: ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(30))),
             rendezvous: rendezvous::client::Behaviour::new(self.keys.clone()),
-            keep_alive: keep_alive::Behaviour,
         };
 
         self.subscribe_to_topics(&mut behaviour);
 
         // Create a Swarm to manage peers and events
-        let mut swarm =
-            SwarmBuilder::with_tokio_executor(transport, behaviour, self.peer_id).build();
-        let port = env::var("P2P")
-            .unwrap_or("7000".into())
-            .parse::<i32>()
-            .unwrap();
-        let addr = format!("/ip4/0.0.0.0/tcp/{port}")
+        let mut swarm = SwarmBuilder::with_existing_identity(self.keys.clone())
+            .with_tokio()
+            .with_tcp(
+                Default::default(),
+                (libp2p_tls::Config::new, libp2p::noise::Config::new),
+                libp2p::yamux::Config::default,
+            )?
+            .with_quic()
+            // .with_other_transport(|_key| transport)?
+            .with_dns()?
+            .with_behaviour(|_key| behaviour)?
+            .build();
+        // (transport, behaviour, self.peer_id).build();
+        let addr = format!("/ip4/0.0.0.0/tcp/{}", self.config.p2p_port)
             .parse::<Multiaddr>()
             .unwrap();
         swarm.listen_on(addr.clone())?;
         swarm.add_external_address(
-            format!("/ip4/127.0.0.1/tcp/{port}")
-                .parse::<Multiaddr>()
-                .unwrap(),
+            format!(
+                "/ip4/{}/tcp/{}",
+                self.config.external_host, self.config.external_p2p_port
+            )
+            .parse::<Multiaddr>()
+            .unwrap(),
         );
-        swarm.dial(rendezvous_address().await.clone())?;
+        swarm.dial(self.rendezvous_address.clone())?;
+        // self.register(&mut swarm).await;
         println!("Peer ID: {:?}", self.peer_id);
         Ok(swarm)
     }
@@ -657,6 +741,12 @@ impl P2P {
         match event {
             SwarmEvent::NewListenAddr { address, .. } => {
                 println!("Listening on {address:?}");
+            }
+            SwarmEvent::IncomingConnectionError { error, .. } => {
+                println!("{error:?}");
+            }
+            SwarmEvent::OutgoingConnectionError { error, .. } => {
+                println!("{error:?}");
             }
             SwarmEvent::IncomingConnection { local_addr, .. } => {
                 println!("incoming connection: {local_addr:?}");
@@ -982,7 +1072,6 @@ impl P2P {
         match process_request.status {
             DataRequestType::CORROBORATE => {
                 let response = self.entry.corroborate(&mut process_request).await;
-                println!("{response:?}");
             }
             DataRequestType::VALIDATED => {
                 let hash = calculate_hash(&process_request.request);
@@ -994,7 +1083,6 @@ impl P2P {
                         process_request.user_id.clone(),
                     )
                     .await;
-                println!("{response:?}");
                 if response.is_ok() {
                     self.entry
                         .success_event(hash, Some(process_request.user_id), process_request.status)

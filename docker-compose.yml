@@ -1,49 +1,82 @@
 version: '3'
 
 services:
-  grpc:
-    image: beco/grpc
+  user:
+    image: beco/user
+    env_file: .user.env
     build:
       context: ./
       dockerfile: Dockerfile
-      target: grpc
+      target: user
     volumes:
       - ./grpc:/code
-  grpc_2:
-    image: beco/grpc
+    networks:
+      static:
+        ipv4_address: 172.21.0.3
+    ports:
+      - 7000:7000
+      - 9001:9001
+  
+  user2:
+    image: beco/user
+    env_file: .user2.env
     build:
       context: ./
       dockerfile: Dockerfile
-      target: grpc
+      target: user
     volumes:
       - ./grpc:/code
+    networks:
+      static:
+        ipv4_address: 172.21.0.7
+    ports:
+      - 7001:7000
+      - 9002:9001
   
   rendezvous:
     image: beco/rendezvous
+    env_file: .rendezvous.env
     build:
       context: ./
       dockerfile: Dockerfile
       target: rendezvous
     volumes:
       - ./grpc:/code
+    networks:
+      static:
+        ipv4_address: 172.21.0.4
+    ports:
+      - 62649:62649
   
   validator:
     image: beco/validator
+    env_file: .validator.env
     build:
       context: ./
       dockerfile: Dockerfile
       target: validator
     volumes:
       - ./grpc:/code
+    networks:
+      static:
+        ipv4_address: 172.21.0.5
+    ports:
+      - 7003:7003
   
   sst:
-    image: beco/rendezvous
+    image: beco/sst
+    env_file: .sst.env
     build:
       context: ./
       dockerfile: Dockerfile
       target: sst
     volumes:
       - ./grpc:/code
+    networks:
+      static:
+        ipv4_address: 172.21.0.6
+    ports:
+      - 7004:7004
 
   postgres:
     image: postgres
@@ -56,6 +89,15 @@ services:
       - postgres:/var/lib/postgresql/data
     ports:
       - 5432:5432
+    networks:
+      static:
 
 volumes:
   postgres:
+
+networks:
+  static:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.21.0.0/24
