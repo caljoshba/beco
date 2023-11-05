@@ -36,14 +36,12 @@ impl From<gossipsub::Event> for BecoBehaviourEvent {
     }
 }
 
-#[cfg(not(feature = "rendezvous"))]
 impl From<identify::Event> for BecoBehaviourEvent {
     fn from(event: identify::Event) -> Self {
         BecoBehaviourEvent::Identify(event)
     }
 }
 
-#[cfg(not(feature = "rendezvous"))]
 impl From<ping::Event> for BecoBehaviourEvent {
     fn from(event: ping::Event) -> Self {
         BecoBehaviourEvent::Ping(event)
@@ -59,8 +57,8 @@ impl From<rendezvous::client::Event> for BecoBehaviourEvent {
 
 #[cfg(feature = "rendezvous")]
 #[derive(NetworkBehaviour)]
-#[behaviour(to_swarm = "RendezvousServerBehaviourEvent")]
-pub struct RendezvousServerBehaviour {
+#[behaviour(to_swarm = "BecoBehaviourEvent")]
+pub struct BecoBehaviour {
     pub identify: identify::Behaviour,
     pub ping: ping::Behaviour,
     pub rendezvous: rendezvous::server::Behaviour,
@@ -68,29 +66,15 @@ pub struct RendezvousServerBehaviour {
 
 #[cfg(feature = "rendezvous")]
 #[derive(Debug)]
-pub enum RendezvousServerBehaviourEvent {
+pub enum BecoBehaviourEvent {
     Identify(identify::Event),
     Ping(ping::Event),
     Rendezvous(rendezvous::server::Event),
 }
 
 #[cfg(feature = "rendezvous")]
-impl From<identify::Event> for RendezvousServerBehaviourEvent {
-    fn from(event: identify::Event) -> Self {
-        RendezvousServerBehaviourEvent::Identify(event)
-    }
-}
-
-#[cfg(feature = "rendezvous")]
-impl From<ping::Event> for RendezvousServerBehaviourEvent {
-    fn from(event: ping::Event) -> Self {
-        RendezvousServerBehaviourEvent::Ping(event)
-    }
-}
-
-#[cfg(feature = "rendezvous")]
-impl From<rendezvous::server::Event> for RendezvousServerBehaviourEvent {
+impl From<rendezvous::server::Event> for BecoBehaviourEvent {
     fn from(event: rendezvous::server::Event) -> Self {
-        RendezvousServerBehaviourEvent::Rendezvous(event)
+        BecoBehaviourEvent::Rendezvous(event)
     }
 }

@@ -27,7 +27,7 @@ path = "src/rendezvous.rs"
 required-features = ["rendezvous"]
 
 [features]
-# default = ["grpc"]
+# default = ["user"]
 user = []
 validator = []
 sst = []
